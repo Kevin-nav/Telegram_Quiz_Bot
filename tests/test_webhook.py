@@ -1,0 +1,97 @@
+import pytest
+from httpx import AsyncClient
+
+
+@pytest.mark.asyncio
+async def test_health_check(async_client: AsyncClient):
+    """Test the health check endpoint returns 200 OK."""
+    response = await async_client.get("/health/live")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "message": "Adarkwa Study Bot is running.",
+    }
+
+
+@pytest.mark.asyncio
+async def test_webhook_unauthorized(async_client: AsyncClient):
+    """Test webhook with invalid or missing secret token."""
+    # Missing secret token
+    response = await async_client.post("/webhook", json={"update_id": 123})
+    assert response.status_code == 401
+
+    # Invalid secret token
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "invalid-secret"}
+    response = await async_client.post(
+        "/webhook", json={"update_id": 123}, headers=headers
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_webhook_authorized(async_client: AsyncClient, monkeypatch):
+    """Test webhook with valid secret token."""
+
+    # Mock enqueue_telegram_update so we don't actually try to connect to Redis during the test
+    async def mock_enqueue(*args, **kwargs):
+        pass
+
+    async def mock_claim(*args, **kwargs):
+        return True
+
+    import src.api.webhooks
+
+    monkeypatch.setattr(src.api.webhooks, "enqueue_telegram_update", mock_enqueue)
+    monkeypatch.setattr(src.api.webhooks, "claim_telegram_update", mock_claim)
+
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+    payload = {
+        "update_id": 10000,
+        "message": {
+            "message_id": 1,
+            "date": 1441645532,
+            "chat": {"id": 1111111, "type": "private"},
+            "text": "/start",
+        },
+    }
+
+    response = await async_client.post("/webhook", json=payload, headers=headers)
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_duplicate_webhook_returns_200_without_enqueue(async_client, monkeypatch):
+    enqueue_mock = pytest.importorskip("unittest.mock").AsyncMock()
+
+    async def mock_claim(*args, **kwargs):
+        return False
+
+    import src.api.webhooks
+
+    monkeypatch.setattr(src.api.webhooks, "enqueue_telegram_update", enqueue_mock)
+    monkeypatch.setattr(src.api.webhooks, "claim_telegram_update", mock_claim)
+
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+    response = await async_client.post(
+        "/webhook",
+        json={"update_id": 10000},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    enqueue_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ready_endpoint_returns_503_when_dependency_down(async_client, monkeypatch):
+    async def mock_check_readiness(*args, **kwargs):
+        return {"redis": "ok", "database": "error"}
+
+    import src.api.health
+
+    monkeypatch.setattr(src.api.health, "check_readiness", mock_check_readiness)
+
+    response = await async_client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"

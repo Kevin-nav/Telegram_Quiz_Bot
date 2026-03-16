@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adarkwa-bot-config
+data:
+  APP_ENV: "production"
+  # Set your external webhook URL (from Cloudflare Tunnels/Ingress)
+  WEBHOOK_URL: "https://your-domain.com"
+  PORT: "8000"
+  
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adarkwa-bot-secret
+type: Opaque
+# Values must be base64 encoded
+# E.g., `echo -n 'my-token' | base64`
+data:
+  TELEGRAM_BOT_TOKEN: "base64_encoded_token_here"
+  DATABASE_URL: "base64_encoded_neon_url_here" # standard postgres:// or postgresql+asyncpg:// both supported
+  REDIS_URL: "base64_encoded_redis_url_here"
+  WEBHOOK_SECRET: "base64_encoded_webhook_secret_here"
+  SENTRY_DSN: "base64_encoded_sentry_dsn_here"
+  R2_ACCOUNT_ID: "base64_encoded_r2_account_id_here"
+  R2_ACCESS_KEY_ID: "base64_encoded_r2_access_key_id_here"
+  R2_SECRET_ACCESS_KEY: "base64_encoded_r2_secret_key_here"
+  R2_BUCKET_NAME: "base64_encoded_r2_bucket_name_here"
+  R2_PUBLIC_BASE_URL: "base64_encoded_r2_public_base_url_here"

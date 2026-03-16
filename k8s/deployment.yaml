@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adarkwa-bot-webhook
+  labels:
+    app: adarkwa-bot
+    component: webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: adarkwa-bot
+      component: webhook
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: adarkwa-bot
+        component: webhook
+    spec:
+      containers:
+      - name: adarkwa-bot
+        image: adarkwa-bot:latest  # Update with your container registry image URI
+        imagePullPolicy: Always
+        command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: adarkwa-bot-config
+        - secretRef:
+            name: adarkwa-bot-secret
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+# We also include a Deployment for the Background Worker (e.g., ARQ/Celery)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adarkwa-bot-worker
+  labels:
+    app: adarkwa-bot
+    component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adarkwa-bot
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: adarkwa-bot
+        component: worker
+    spec:
+      containers:
+      - name: adarkwa-bot-worker
+        image: adarkwa-bot:latest
+        imagePullPolicy: Always
+        command: ["arq", "src.tasks.worker.WorkerSettings"]
+        envFrom:
+        - configMapRef:
+            name: adarkwa-bot-config
+        - secretRef:
+            name: adarkwa-bot-secret
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

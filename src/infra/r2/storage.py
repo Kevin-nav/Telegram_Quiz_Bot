@@ -1,0 +1,51 @@
+from src.core.config import get_settings
+from src.infra.r2.client import create_r2_client
+
+
+ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
+MAX_OBJECT_BYTES = 5 * 1024 * 1024
+
+
+def build_latex_object_key(
+    course_id: str, question_id: str, content_hash: str, extension: str = "png"
+) -> str:
+    return f"latex/{course_id}/{question_id}/{content_hash}.{extension}"
+
+
+class R2Storage:
+    def __init__(self, client=None, bucket_name: str | None = None):
+        settings = get_settings()
+        self.client = client or create_r2_client()
+        self.bucket_name = bucket_name or settings.r2_bucket_name
+
+    def validate_upload(self, content_type: str, size_bytes: int) -> None:
+        if content_type not in ALLOWED_CONTENT_TYPES:
+            raise ValueError("Unsupported R2 content type.")
+        if size_bytes > MAX_OBJECT_BYTES:
+            raise ValueError("R2 object exceeds maximum allowed size.")
+
+    def put_object(self, key: str, body: bytes, content_type: str) -> None:
+        self.validate_upload(content_type, len(body))
+        self.client.put_object(
+            Bucket=self.bucket_name,
+            Key=key,
+            Body=body,
+            ContentType=content_type,
+        )
+
+    def delete_object(self, key: str) -> None:
+        self.client.delete_object(Bucket=self.bucket_name, Key=key)
+
+    def object_exists(self, key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=self.bucket_name, Key=key)
+            return True
+        except Exception:
+            return False
+
+    def get_presigned_download_url(self, key: str, expires_in: int = 3600) -> str:
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket_name, "Key": key},
+            ExpiresIn=expires_in,
+        )

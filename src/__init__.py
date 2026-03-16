@@ -1,0 +1,1 @@
+"""Adarkwa Study Bot package."""
