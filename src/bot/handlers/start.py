@@ -1,9 +1,8 @@
-from types import SimpleNamespace
-
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.analytics.internal_analytics import analytics
+from src.bot.copy import build_home_message, build_welcome_message
 from src.bot.keyboards import build_home_keyboard, build_welcome_keyboard
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -58,10 +57,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not getattr(user, "onboarding_completed", False):
         await update.message.reply_text(
-            (
-                f"Welcome, {telegram_user.first_name or 'student'}.\n\n"
-                "Let’s set up your study profile so your quizzes start in the right place."
-            ),
+            build_welcome_message(telegram_user.first_name or telegram_user.full_name),
             reply_markup=build_welcome_keyboard(),
         )
         return
@@ -71,6 +67,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         has_active_quiz=getattr(user, "has_active_quiz", False),
     )
     await update.message.reply_text(
-        home["message"],
+        build_home_message(_build_home_profile(user)),
         reply_markup=build_home_keyboard(home["buttons"]),
     )

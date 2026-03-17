@@ -2,6 +2,13 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.callbacks import parse_callback
+from src.bot.copy import (
+    build_help_message,
+    build_home_message,
+    build_missing_course_message,
+    build_performance_placeholder,
+    build_quiz_ready_message,
+)
 from src.bot.handlers.profile_setup import LABEL_KEY, STATE_KEY
 from src.bot.keyboards import (
     build_home_keyboard,
@@ -75,12 +82,13 @@ def _initial_setup_labels() -> dict[str, str | None]:
 
 async def _render_home(query, context: ContextTypes.DEFAULT_TYPE, user) -> None:
     home_service = _get_home_service(context)
+    profile = _build_home_profile(user)
     home = home_service.build_home(
-        _build_home_profile(user),
+        profile,
         has_active_quiz=getattr(user, "has_active_quiz", False),
     )
     await query.edit_message_text(
-        text=home["message"],
+        text=build_home_message(profile),
         reply_markup=build_home_keyboard(home["buttons"]),
     )
 
@@ -119,7 +127,7 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             course_name = _build_home_profile(user)["course_name"]
             if course_name == "No course selected":
                 await query.edit_message_text(
-                    text="Choose your course first so the bot knows where to start.",
+                    text=build_missing_course_message(),
                     reply_markup=build_home_keyboard(
                         _get_home_service(context).build_home(
                             _build_home_profile(user),
@@ -137,7 +145,7 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        if action == "change_course" or action == "study_settings":
+        if action in {"change_course", "study_settings"}:
             await _render_change_course(query, context)
             return
 
@@ -155,7 +163,7 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if action == "performance":
             await query.edit_message_text(
-                text=quiz_entry_service.build_performance_placeholder(),
+                text=build_performance_placeholder(),
                 reply_markup=build_home_keyboard(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),
@@ -167,7 +175,7 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if action == "help":
             await query.edit_message_text(
-                text=quiz_entry_service.build_help_message(),
+                text=build_help_message(),
                 reply_markup=build_home_keyboard(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),
@@ -181,10 +189,7 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         question_count = int(parts[2])
         course_name = _build_home_profile(user)["course_name"]
         await query.edit_message_text(
-            text=_get_quiz_entry_service(context).build_quiz_ready_message(
-                course_name,
-                question_count,
-            ),
+            text=build_quiz_ready_message(course_name, question_count),
             reply_markup=build_home_keyboard(
                 _get_home_service(context).build_home(
                     _build_home_profile(user),
