@@ -49,8 +49,21 @@ These are intentionally not part of the current execution slice:
 - admin dashboard and CMS
 - large-scale Kubernetes rollout work
 
+## Current Telegram UX Slice
+
+The current Telegram implementation is moving toward a home-first student flow:
+
+- new users: `/start` -> study profile setup
+- setup path: faculty -> program -> level -> semester -> course
+- returning users: `/start` -> study home
+- home actions: start quiz, continue placeholder, performance placeholder, change course, help
+
+This UX slice is intentionally lightweight and is meant to stabilize navigation and profile context before deeper adaptive-learning and quiz-session behavior is layered in.
+
 ## Supporting Docs
 
 - `docs/adaptive_learning_algorithm.md`
 - `docs/plans/2026-03-16-launch-foundation-design.md`
 - `docs/plans/2026-03-16-launch-foundation.md`
+- `docs/plans/2026-03-17-telegram-ux-flow-design.md`
+- `docs/plans/2026-03-17-telegram-ux-flow.md`
