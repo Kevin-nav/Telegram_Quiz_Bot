@@ -1,0 +1,58 @@
+from src.domains.catalog.data import FACULTIES, LEVELS, PROGRAM_COURSES, SEMESTERS
+
+
+class CatalogNavigationService:
+    def get_faculties(self) -> list[dict]:
+        return [
+            {"code": faculty["code"], "name": faculty["name"]}
+            for faculty in FACULTIES
+        ]
+
+    def get_programs(self, faculty_code: str) -> list[dict]:
+        faculty = self._get_faculty(faculty_code)
+        if faculty is None:
+            return []
+
+        return [
+            {"code": program["code"], "name": program["name"]}
+            for program in faculty["programs"]
+        ]
+
+    def get_levels(self, program_code: str) -> list[dict]:
+        if not self._program_exists(program_code):
+            return []
+        return LEVELS.copy()
+
+    def get_semesters(self, program_code: str, level_code: str) -> list[dict]:
+        if not self._program_exists(program_code) or level_code != "100":
+            return []
+        return SEMESTERS.copy()
+
+    def get_courses(
+        self,
+        faculty_code: str,
+        program_code: str,
+        level_code: str,
+        semester_code: str,
+    ) -> list[dict]:
+        faculty = self._get_faculty(faculty_code)
+        if faculty is None or semester_code != "first" or level_code != "100":
+            return []
+
+        if not any(program["code"] == program_code for program in faculty["programs"]):
+            return []
+
+        return PROGRAM_COURSES.get(program_code, []).copy()
+
+    def _get_faculty(self, faculty_code: str) -> dict | None:
+        for faculty in FACULTIES:
+            if faculty["code"] == faculty_code:
+                return faculty
+        return None
+
+    def _program_exists(self, program_code: str) -> bool:
+        return any(
+            program["code"] == program_code
+            for faculty in FACULTIES
+            for program in faculty["programs"]
+        )
