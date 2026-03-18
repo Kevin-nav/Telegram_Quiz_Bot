@@ -1,11 +1,19 @@
+import logging
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from src.analytics.internal_analytics import analytics
 from src.bot.copy import build_home_message, build_welcome_message
 from src.bot.keyboards import build_home_keyboard, build_welcome_keyboard
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
+from src.infra.redis.state_store import UserProfileRecord
+from src.tasks.arq_client import (
+    enqueue_persist_user_profile,
+    enqueue_record_analytics_event,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _humanize(code: str | None, fallback: str | None = None) -> str | None:
@@ -22,6 +30,14 @@ def _get_home_service(context: ContextTypes.DEFAULT_TYPE) -> HomeService:
     return context.application.bot_data.get("home_service", HomeService())
 
 
+def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("background_scheduler")
+
+
+def _get_state_store(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("state_store")
+
+
 def _build_home_profile(user) -> dict[str, str | None]:
     return {
         "faculty_name": _humanize(getattr(user, "faculty_code", None), "Not set"),
@@ -29,44 +45,82 @@ def _build_home_profile(user) -> dict[str, str | None]:
         "level_name": f"Level {getattr(user, 'level_code', None)}"
         if getattr(user, "level_code", None)
         else "Not set",
-        "semester_name": _humanize(getattr(user, "semester_code", None), "Not set"),
-        "course_name": _humanize(
-            getattr(user, "preferred_course_code", None), "No course selected"
-        ),
     }
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user = update.effective_user
 
-    await analytics.track_event(
-        user_id=telegram_user.id,
-        event_type="User Registered",
-        metadata={
-            "username": telegram_user.username,
-            "first_name": telegram_user.first_name,
-        },
-    )
-
     profile_service = _get_profile_service(context)
     home_service = _get_home_service(context)
-    user = await profile_service.load_or_initialize_user(
-        telegram_user.id,
-        display_name=telegram_user.first_name or telegram_user.full_name,
-    )
+    state_store = _get_state_store(context)
+    user = None
+    if state_store is not None:
+        user = await state_store.get_user_profile(telegram_user.id)
+
+    if user is None:
+        user = UserProfileRecord(
+            id=telegram_user.id,
+            display_name=telegram_user.first_name or telegram_user.full_name,
+            onboarding_completed=False,
+        )
+        if state_store is not None:
+            await state_store.set_user_profile(user)
+        persist_payload = {
+            "user_id": telegram_user.id,
+            "display_name": telegram_user.first_name or telegram_user.full_name,
+        }
+    else:
+        persist_payload = {
+            "user_id": telegram_user.id,
+            "display_name": telegram_user.first_name or telegram_user.full_name,
+            "onboarding_completed": getattr(user, "onboarding_completed", False),
+            "faculty_code": getattr(user, "faculty_code", None),
+            "program_code": getattr(user, "program_code", None),
+            "level_code": getattr(user, "level_code", None),
+            "semester_code": getattr(user, "semester_code", None),
+            "preferred_course_code": getattr(user, "preferred_course_code", None),
+        }
 
     if not getattr(user, "onboarding_completed", False):
         await update.message.reply_text(
             build_welcome_message(telegram_user.first_name or telegram_user.full_name),
             reply_markup=build_welcome_keyboard(),
         )
+    else:
+        home = home_service.build_home(
+            _build_home_profile(user),
+            has_active_quiz=getattr(user, "has_active_quiz", False),
+        )
+        await update.message.reply_text(
+            build_home_message(_build_home_profile(user)),
+            reply_markup=build_home_keyboard(home["buttons"]),
+        )
+
+    scheduler = _get_background_scheduler(context)
+    if scheduler is None:
         return
 
-    home = home_service.build_home(
-        _build_home_profile(user),
-        has_active_quiz=getattr(user, "has_active_quiz", False),
+    scheduler.schedule_coroutine(
+        enqueue_persist_user_profile(persist_payload)
     )
-    await update.message.reply_text(
-        build_home_message(_build_home_profile(user)),
-        reply_markup=build_home_keyboard(home["buttons"]),
-    )
+    if state_store is not None:
+        should_track = await state_store.claim_analytics_event(
+            telegram_user.id,
+            "User Registered",
+        )
+    else:
+        should_track = True
+    if should_track:
+        scheduler.schedule_coroutine(
+            enqueue_record_analytics_event(
+                {
+                    "user_id": telegram_user.id,
+                    "event_type": "User Registered",
+                    "metadata": {
+                        "username": telegram_user.username,
+                        "first_name": telegram_user.first_name,
+                    },
+                }
+            )
+        )

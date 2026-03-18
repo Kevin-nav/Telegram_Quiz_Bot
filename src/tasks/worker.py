@@ -1,17 +1,25 @@
 import logging
 from typing import Any
 
-from arq.connections import RedisSettings
-
 from src.app.bootstrap import (
     create_app_state,
     shutdown_worker_app,
     startup_worker_app,
 )
 from src.app.observability import initialize_observability
-from src.config import REDIS_URL, SENTRY_DSN
-from src.workers.telegram_update import process_telegram_update as handle_telegram_update
-
+from src.config import ARQ_QUEUE_NAME, SENTRY_DSN
+from src.tasks.arq_client import build_arq_redis_settings
+from src.workers.telegram_update import (
+    process_telegram_update as handle_telegram_update,
+)
+from src.workers.background_jobs import (
+    generate_quiz_session as handle_generate_quiz_session,
+    persist_quiz_attempt as handle_persist_quiz_attempt,
+    persist_quiz_session_progress as handle_persist_quiz_session_progress,
+    persist_user_profile as handle_persist_user_profile,
+    rebuild_profile_cache as handle_rebuild_profile_cache,
+    record_analytics_event as handle_record_analytics_event,
+)
 
 logger = logging.getLogger("arq.worker")
 
@@ -42,10 +50,44 @@ async def process_telegram_update(ctx: dict[str, Any], payload: dict) -> None:
         raise
 
 
+async def record_analytics_event(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_record_analytics_event(payload)
+
+
+async def persist_quiz_attempt(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_persist_quiz_attempt(payload)
+
+
+async def persist_quiz_session_progress(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_persist_quiz_session_progress(payload)
+
+
+async def generate_quiz_session(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_generate_quiz_session(payload)
+
+
+async def rebuild_profile_cache(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_rebuild_profile_cache(ctx["runtime"], payload)
+
+
+async def persist_user_profile(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_persist_user_profile(ctx["runtime"], payload)
+
+
 class WorkerSettings:
-    functions = [process_telegram_update]
-    redis_settings = RedisSettings.from_dsn(REDIS_URL)
+    functions = [
+        process_telegram_update,
+        record_analytics_event,
+        persist_quiz_attempt,
+        persist_quiz_session_progress,
+        generate_quiz_session,
+        rebuild_profile_cache,
+        persist_user_profile,
+    ]
+    redis_settings = build_arq_redis_settings()
+    queue_name = ARQ_QUEUE_NAME
     on_startup = startup
     on_shutdown = shutdown
     job_timeout = 60
     max_tries = 3
+    poll_delay = 0.05

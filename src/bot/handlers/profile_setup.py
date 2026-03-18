@@ -1,4 +1,5 @@
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.callbacks import parse_callback
@@ -6,9 +7,10 @@ from src.bot.keyboards import build_home_keyboard, build_setup_keyboard
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
+from src.infra.redis.state_store import UserProfileRecord
+from src.tasks.arq_client import enqueue_persist_user_profile
 
-
-SETUP_ORDER = ["faculty", "program", "level", "semester", "course"]
+SETUP_ORDER = ["faculty", "program", "level"]
 STATE_KEY = "profile_setup_state"
 LABEL_KEY = "profile_setup_labels"
 
@@ -19,7 +21,9 @@ def _humanize(code: str | None) -> str:
     return code.replace("-", " ").title()
 
 
-def _get_catalog_service(context: ContextTypes.DEFAULT_TYPE) -> CatalogNavigationService:
+def _get_catalog_service(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> CatalogNavigationService:
     return context.application.bot_data.get(
         "catalog_service", CatalogNavigationService()
     )
@@ -33,13 +37,19 @@ def _get_home_service(context: ContextTypes.DEFAULT_TYPE) -> HomeService:
     return context.application.bot_data.get("home_service", HomeService())
 
 
+def _get_state_store(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("state_store")
+
+
+def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("background_scheduler")
+
+
 def _initial_state() -> dict[str, str | None]:
     return {
         "faculty": None,
         "program": None,
         "level": None,
-        "semester": None,
-        "course": None,
         "current_step": "faculty",
     }
 
@@ -49,12 +59,12 @@ def _initial_labels() -> dict[str, str | None]:
         "faculty_name": None,
         "program_name": None,
         "level_name": None,
-        "semester_name": None,
-        "course_name": None,
     }
 
 
-def _reset_following_steps(state: dict[str, str | None], labels: dict[str, str | None], step: str) -> None:
+def _reset_following_steps(
+    state: dict[str, str | None], labels: dict[str, str | None], step: str
+) -> None:
     start_index = SETUP_ORDER.index(step)
     for later_step in SETUP_ORDER[start_index + 1 :]:
         state[later_step] = None
@@ -66,9 +76,7 @@ def _selection_summary(labels: dict[str, str | None]) -> str:
         "Study Profile Setup\n\n"
         f"Faculty: {labels.get('faculty_name') or 'Not set'}\n"
         f"Program: {labels.get('program_name') or 'Not set'}\n"
-        f"Level: {labels.get('level_name') or 'Not set'}\n"
-        f"Semester: {labels.get('semester_name') or 'Not set'}\n"
-        f"Course: {labels.get('course_name') or 'Not set'}"
+        f"Level: {labels.get('level_name') or 'Not set'}"
     )
 
 
@@ -77,8 +85,6 @@ def _prompt_for_step(step: str) -> str:
         "faculty": "Choose your faculty:",
         "program": "Choose your program:",
         "level": "Choose your level:",
-        "semester": "Choose your semester:",
-        "course": "Choose your course:",
     }[step]
 
 
@@ -93,15 +99,6 @@ def _options_for_step(
         return catalog_service.get_programs(state["faculty"])
     if step == "level":
         return catalog_service.get_levels(state["program"])
-    if step == "semester":
-        return catalog_service.get_semesters(state["program"], state["level"])
-    if step == "course":
-        return catalog_service.get_courses(
-            state["faculty"],
-            state["program"],
-            state["level"],
-            state["semester"],
-        )
     return []
 
 
@@ -110,6 +107,15 @@ def _option_name(options: list[dict], code: str) -> str:
         if option["code"] == code:
             return option["name"]
     return _humanize(code)
+
+
+async def _safe_edit_message_text(query, *, text: str, reply_markup=None) -> None:
+    try:
+        await query.edit_message_text(text=text, reply_markup=reply_markup)
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            return
+        raise
 
 
 async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> None:
@@ -125,46 +131,63 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
         include_back=step != "faculty",
         include_cancel=True,
     )
-    await query.edit_message_text(text=text, reply_markup=markup)
+    await _safe_edit_message_text(query, text=text, reply_markup=markup)
 
 
-async def _complete_setup(query, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _complete_setup(
+    query, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     state = context.user_data.get(STATE_KEY, _initial_state())
     labels = context.user_data.get(LABEL_KEY, _initial_labels())
-    profile_service = _get_profile_service(context)
     home_service = _get_home_service(context)
+    state_store = _get_state_store(context)
+    scheduler = _get_background_scheduler(context)
 
-    await profile_service.update_study_profile(
-        update.effective_user.id,
+    profile = UserProfileRecord(
+        id=update.effective_user.id,
+        display_name=update.effective_user.first_name or update.effective_user.full_name,
         faculty_code=state["faculty"],
         program_code=state["program"],
         level_code=state["level"],
-        semester_code=state["semester"],
-        preferred_course_code=state["course"],
+        semester_code=None,
+        preferred_course_code=None,
+        onboarding_completed=True,
     )
-    user = await profile_service.mark_onboarding_complete(update.effective_user.id)
-    user.faculty_code = state["faculty"]
-    user.program_code = state["program"]
-    user.level_code = state["level"]
-    user.semester_code = state["semester"]
-    user.preferred_course_code = state["course"]
+    if state_store is not None:
+        await state_store.set_user_profile(profile)
 
     home = home_service.build_home(
         {
             "faculty_name": labels["faculty_name"],
             "program_name": labels["program_name"],
             "level_name": labels["level_name"],
-            "semester_name": labels["semester_name"],
-            "course_name": labels["course_name"],
+            "semester_name": None,
+            "course_name": None,
         },
         has_active_quiz=False,
     )
     context.user_data.pop(STATE_KEY, None)
     context.user_data.pop(LABEL_KEY, None)
-    await query.edit_message_text(
+    await _safe_edit_message_text(
+        query,
         text=home["message"],
         reply_markup=build_home_keyboard(home["buttons"]),
     )
+    if scheduler is not None:
+        scheduler.schedule_coroutine(
+            enqueue_persist_user_profile(
+                {
+                    "user_id": profile.id,
+                    "display_name": profile.display_name,
+                    "faculty_code": profile.faculty_code,
+                    "program_code": profile.program_code,
+                    "level_code": profile.level_code,
+                    "semester_code": profile.semester_code,
+                    "preferred_course_code": profile.preferred_course_code,
+                    "onboarding_completed": True,
+                }
+            )
+        )
 
 
 async def handle_profile_setup_callback(
@@ -190,7 +213,7 @@ async def handle_profile_setup_callback(
     if action == "cancel":
         context.user_data.pop(STATE_KEY, None)
         context.user_data.pop(LABEL_KEY, None)
-        await query.edit_message_text("Study profile setup cancelled.")
+        await _safe_edit_message_text(query, text="Study profile setup cancelled.")
         return
 
     if action == "back":

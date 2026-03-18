@@ -41,7 +41,7 @@ async def test_profile_service_marks_onboarding_complete():
 
     user = await service.load_or_initialize_user(telegram_user_id=42, display_name="Kevin")
     assert user.display_name == "Kevin"
-    assert user.onboarding_completed is None or user.onboarding_completed is False
+    assert user.onboarding_completed is False
 
     user = await service.update_study_profile(
         42,
@@ -56,4 +56,26 @@ async def test_profile_service_marks_onboarding_complete():
     assert user.semester_code == "first"
 
     user = await service.mark_onboarding_complete(42)
+    assert user.onboarding_completed is True
+
+
+@pytest.mark.asyncio
+async def test_profile_service_persist_profile_record_upserts_fields():
+    session_factory = FakeSessionFactory()
+    service = ProfileService(session_factory=session_factory)
+
+    user = await service.persist_profile_record(
+        {
+            "user_id": 7,
+            "display_name": "Kevin",
+            "faculty_code": "engineering",
+            "program_code": "mechanical-engineering",
+            "level_code": "100",
+            "onboarding_completed": True,
+        }
+    )
+
+    assert user.id == 7
+    assert user.display_name == "Kevin"
+    assert user.faculty_code == "engineering"
     assert user.onboarding_completed is True

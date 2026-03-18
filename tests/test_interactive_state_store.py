@@ -1,0 +1,87 @@
+import pytest
+
+from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
+from src.infra.redis.state_store import InteractiveStateStore, UserProfileRecord
+from tests.fakes import FakeRedis
+
+
+@pytest.mark.asyncio
+async def test_user_profile_round_trip_tracks_active_quiz():
+    store = InteractiveStateStore(FakeRedis())
+
+    await store.set_user_profile(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            preferred_course_code="calculus",
+            onboarding_completed=True,
+        )
+    )
+    await store.set_active_quiz(42, "session-1")
+
+    profile = await store.get_user_profile(42)
+
+    assert profile is not None
+    assert profile.display_name == "Kevin"
+    assert profile.has_active_quiz is True
+
+
+@pytest.mark.asyncio
+async def test_quiz_state_and_poll_map_round_trip():
+    store = InteractiveStateStore(FakeRedis())
+    session = QuizSessionState(
+        session_id="session-1",
+        user_id=42,
+        chat_id=99,
+        course_id="calculus",
+        course_name="Calculus",
+        questions=[
+            QuizQuestion(
+                question_id="q1",
+                prompt="Question 1",
+                options=["A", "B", "C", "D"],
+                correct_option_id=1,
+            )
+        ],
+    )
+    await store.set_quiz_session(session)
+    await store.set_poll_map(
+        PollMapRecord(
+            poll_id="poll-1",
+            session_id="session-1",
+            question_id="q1",
+            question_index=0,
+            user_id=42,
+        )
+    )
+
+    loaded_session = await store.get_quiz_session("session-1")
+    poll_map = await store.get_poll_map("poll-1")
+
+    assert loaded_session is not None
+    assert loaded_session.course_name == "Calculus"
+    assert loaded_session.current_question().question_id == "q1"
+    assert poll_map is not None
+    assert poll_map.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_quiz_lock_rejects_duplicate_acquire():
+    store = InteractiveStateStore(FakeRedis())
+
+    token = await store.acquire_quiz_lock("session-1")
+    duplicate = await store.acquire_quiz_lock("session-1")
+
+    assert token is not None
+    assert duplicate is None
+
+    await store.release_quiz_lock("session-1", token)
+    assert await store.acquire_quiz_lock("session-1") is not None
+
+
+@pytest.mark.asyncio
+async def test_analytics_claim_deduplicates_same_event():
+    store = InteractiveStateStore(FakeRedis())
+
+    assert await store.claim_analytics_event(42, "User Registered") is True
+    assert await store.claim_analytics_event(42, "User Registered") is False

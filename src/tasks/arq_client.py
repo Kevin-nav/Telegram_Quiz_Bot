@@ -3,18 +3,30 @@ import logging
 from arq import create_pool
 from arq.connections import RedisSettings
 
-from src.config import REDIS_URL
+from src.config import ARQ_QUEUE_NAME, REDIS_URL
 
 
 logger = logging.getLogger(__name__)
 arq_pool = None
 
 
+def build_arq_redis_settings() -> RedisSettings:
+    settings = RedisSettings.from_dsn(REDIS_URL)
+    settings.conn_timeout = 5
+    settings.conn_retries = 10
+    settings.conn_retry_delay = 1
+    settings.retry_on_timeout = True
+    return settings
+
+
 async def init_arq_pool():
     global arq_pool
     if arq_pool is None:
         logger.info("Initializing ARQ connection pool.")
-        arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+        arq_pool = await create_pool(
+            build_arq_redis_settings(),
+            default_queue_name=ARQ_QUEUE_NAME,
+        )
     return arq_pool
 
 
@@ -35,3 +47,33 @@ async def enqueue_telegram_update(update_payload: dict):
     """Enqueue a Telegram update payload for background processing."""
     pool = await get_arq_pool()
     await pool.enqueue_job("process_telegram_update", update_payload)
+
+
+async def enqueue_record_analytics_event(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("record_analytics_event", payload)
+
+
+async def enqueue_persist_quiz_attempt(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("persist_quiz_attempt", payload)
+
+
+async def enqueue_persist_quiz_session_progress(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("persist_quiz_session_progress", payload)
+
+
+async def enqueue_generate_quiz_session(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("generate_quiz_session", payload)
+
+
+async def enqueue_rebuild_profile_cache(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("rebuild_profile_cache", payload)
+
+
+async def enqueue_persist_user_profile(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("persist_user_profile", payload)

@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.core.security import (
     DEFAULT_WEBHOOK_SECRET,
+    build_async_database_config,
     has_placeholder_token,
     has_unsafe_secret,
     is_non_local_environment,
@@ -26,6 +27,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    arq_queue_name: str = Field(
+        default="adarkwa-bot-background-v2",
+        alias="ARQ_QUEUE_NAME",
+    )
     webhook_url: str | None = Field(default=None, alias="WEBHOOK_URL")
     webhook_secret: str | None = Field(default=None, alias="WEBHOOK_SECRET")
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
@@ -76,7 +81,13 @@ class Settings(BaseSettings):
 
     @property
     def async_database_url(self) -> str:
-        return normalize_async_database_url(self.database_url)
+        async_database_url, _ = build_async_database_config(self.database_url)
+        return async_database_url
+
+    @property
+    def async_database_connect_args(self) -> dict[str, object]:
+        _, connect_args = build_async_database_config(self.database_url)
+        return connect_args
 
     @property
     def sync_database_url(self) -> str:

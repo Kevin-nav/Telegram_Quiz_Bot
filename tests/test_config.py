@@ -52,3 +52,30 @@ def test_sync_database_url_is_accepted_and_normalized(monkeypatch):
 
     assert settings.async_database_url.startswith("postgresql+asyncpg://")
     assert settings.sync_database_url.startswith("postgresql://")
+
+
+def test_async_database_url_strips_asyncpg_incompatible_query_params(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        (
+            "postgresql://user:pass@host/db"
+            "?sslmode=require&channel_binding=require&application_name=study-bot"
+        ),
+    )
+
+    settings = Settings()
+
+    assert settings.async_database_url == (
+        "postgresql+asyncpg://user:pass@host/db?application_name=study-bot"
+    )
+    assert settings.async_database_connect_args == {"ssl": "require"}
+
+
+def test_arq_queue_name_defaults_to_background_v2(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
+
+    settings = Settings()
+
+    assert settings.arq_queue_name == "adarkwa-bot-background-v2"

@@ -1,5 +1,8 @@
 import pytest
 from httpx import AsyncClient
+from types import SimpleNamespace
+
+from tests.fakes import FakeRedis
 
 
 @pytest.mark.asyncio
@@ -30,19 +33,24 @@ async def test_webhook_unauthorized(async_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_webhook_authorized(async_client: AsyncClient, monkeypatch):
-    """Test webhook with valid secret token."""
+    dispatched_payloads = []
 
-    # Mock enqueue_telegram_update so we don't actually try to connect to Redis during the test
-    async def mock_enqueue(*args, **kwargs):
-        pass
-
-    async def mock_claim(*args, **kwargs):
-        return True
+    class FakeDispatcher:
+        async def dispatch(self, payload):
+            dispatched_payloads.append(payload)
+            return "inline"
 
     import src.api.webhooks
 
-    monkeypatch.setattr(src.api.webhooks, "enqueue_telegram_update", mock_enqueue)
-    monkeypatch.setattr(src.api.webhooks, "claim_telegram_update", mock_claim)
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "get_runtime",
+        lambda request: SimpleNamespace(
+            redis=FakeRedis(),
+            dispatcher=FakeDispatcher(),
+            telegram_app=SimpleNamespace(bot_data={}),
+        ),
+    )
 
     headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
     payload = {
@@ -57,18 +65,29 @@ async def test_webhook_authorized(async_client: AsyncClient, monkeypatch):
 
     response = await async_client.post("/webhook", json=payload, headers=headers)
     assert response.status_code == 200
+    assert dispatched_payloads == [payload]
 
 
 @pytest.mark.asyncio
 async def test_duplicate_webhook_returns_200_without_enqueue(async_client, monkeypatch):
-    enqueue_mock = pytest.importorskip("unittest.mock").AsyncMock()
+    dispatch_calls = []
 
     async def mock_claim(*args, **kwargs):
         return False
 
     import src.api.webhooks
 
-    monkeypatch.setattr(src.api.webhooks, "enqueue_telegram_update", enqueue_mock)
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "get_runtime",
+        lambda request: SimpleNamespace(
+            redis=FakeRedis(),
+            dispatcher=SimpleNamespace(
+                dispatch=lambda payload: dispatch_calls.append(payload)
+            ),
+            telegram_app=SimpleNamespace(bot_data={}),
+        ),
+    )
     monkeypatch.setattr(src.api.webhooks, "claim_telegram_update", mock_claim)
 
     headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
@@ -79,7 +98,37 @@ async def test_duplicate_webhook_returns_200_without_enqueue(async_client, monke
     )
 
     assert response.status_code == 200
-    enqueue_mock.assert_not_called()
+    assert dispatch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_webhook_background_update_uses_dispatcher(async_client, monkeypatch):
+    routes = []
+
+    class FakeDispatcher:
+        async def dispatch(self, payload):
+            routes.append(payload)
+            return "background"
+
+    import src.api.webhooks
+
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "get_runtime",
+        lambda request: SimpleNamespace(
+            redis=FakeRedis(),
+            dispatcher=FakeDispatcher(),
+            telegram_app=SimpleNamespace(bot_data={}),
+        ),
+    )
+
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+    payload = {"update_id": 10001, "message": {"photo": [{"file_id": "abc"}]}}
+
+    response = await async_client.post("/webhook", json=payload, headers=headers)
+
+    assert response.status_code == 200
+    assert routes == [payload]
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@ from src.bot.copy import (
     build_quiz_ready_message,
 )
 from src.bot.handlers.profile_setup import LABEL_KEY, STATE_KEY
+from src.domains.quiz.service import QuizSessionService
 from src.bot.keyboards import (
     build_home_keyboard,
     build_quiz_length_keyboard,
@@ -32,11 +33,9 @@ def _build_home_profile(user) -> dict[str, str]:
         "faculty_name": _humanize(getattr(user, "faculty_code", None), "Not set"),
         "program_name": _humanize(getattr(user, "program_code", None), "Not set"),
         "level_name": (
-            f"Level {user.level_code}" if getattr(user, "level_code", None) else "Not set"
-        ),
-        "semester_name": _humanize(getattr(user, "semester_code", None), "Not set"),
-        "course_name": _humanize(
-            getattr(user, "preferred_course_code", None), "No course selected"
+            f"Level {user.level_code}"
+            if getattr(user, "level_code", None)
+            else "Not set"
         ),
     }
 
@@ -45,7 +44,9 @@ def _get_profile_service(context: ContextTypes.DEFAULT_TYPE) -> ProfileService:
     return context.application.bot_data.get("profile_service", ProfileService())
 
 
-def _get_catalog_service(context: ContextTypes.DEFAULT_TYPE) -> CatalogNavigationService:
+def _get_catalog_service(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> CatalogNavigationService:
     return context.application.bot_data.get(
         "catalog_service", CatalogNavigationService()
     )
@@ -59,13 +60,40 @@ def _get_quiz_entry_service(context: ContextTypes.DEFAULT_TYPE) -> QuizEntryServ
     return context.application.bot_data.get("quiz_entry_service", QuizEntryService())
 
 
+def _get_quiz_session_service(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> QuizSessionService:
+    return context.application.bot_data.get("quiz_session_service", QuizSessionService())
+
+
+def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
+    return context.application.bot_data.get("background_scheduler")
+
+
+def _noop_schedule(coro) -> None:
+    coro.close()
+
+
+def _get_schedule_background(context: ContextTypes.DEFAULT_TYPE):
+    scheduler = _get_background_scheduler(context)
+    if scheduler is None:
+        return _noop_schedule
+    return scheduler.schedule_coroutine
+
+
+def _course_id(user) -> str:
+    return getattr(user, "preferred_course_code", None) or "general-study"
+
+
+def _course_name(user) -> str:
+    return _humanize(getattr(user, "preferred_course_code", None), "Your Course")
+
+
 def _initial_setup_state() -> dict[str, str | None]:
     return {
         "faculty": None,
         "program": None,
         "level": None,
-        "semester": None,
-        "course": None,
         "current_step": "faculty",
     }
 
@@ -75,8 +103,6 @@ def _initial_setup_labels() -> dict[str, str | None]:
         "faculty_name": None,
         "program_name": None,
         "level_name": None,
-        "semester_name": None,
-        "course_name": None,
     }
 
 
@@ -93,7 +119,7 @@ async def _render_home(query, context: ContextTypes.DEFAULT_TYPE, user) -> None:
     )
 
 
-async def _render_change_course(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data[STATE_KEY] = _initial_setup_state()
     context.user_data[LABEL_KEY] = _initial_setup_labels()
     faculties = _get_catalog_service(context).get_faculties()
@@ -108,7 +134,9 @@ async def _render_change_course(query, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_home_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     query = update.callback_query
     await query.answer()
 
@@ -124,34 +152,30 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         quiz_entry_service = _get_quiz_entry_service(context)
 
         if action == "start_quiz":
-            course_name = _build_home_profile(user)["course_name"]
-            if course_name == "No course selected":
-                await query.edit_message_text(
-                    text=build_missing_course_message(),
-                    reply_markup=build_home_keyboard(
-                        _get_home_service(context).build_home(
-                            _build_home_profile(user),
-                            has_active_quiz=getattr(user, "has_active_quiz", False),
-                        )["buttons"]
-                    ),
-                )
-                return
-
             await query.edit_message_text(
-                text=quiz_entry_service.build_length_prompt(course_name),
+                text=quiz_entry_service.build_length_prompt(_course_name(user)),
                 reply_markup=build_quiz_length_keyboard(
                     quiz_entry_service.QUESTION_COUNTS
                 ),
             )
             return
 
-        if action in {"change_course", "study_settings"}:
-            await _render_change_course(query, context)
+        if action == "study_settings":
+            await _render_study_settings(query, context)
             return
 
         if action == "continue_quiz":
+            resumed = await _get_quiz_session_service(context).continue_quiz(
+                bot=context.bot,
+                user_id=update.effective_user.id,
+            )
+            text = (
+                "Reopening your active quiz."
+                if resumed
+                else quiz_entry_service.build_continue_placeholder()
+            )
             await query.edit_message_text(
-                text=quiz_entry_service.build_continue_placeholder(),
+                text=text,
                 reply_markup=build_home_keyboard(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),
@@ -187,13 +211,27 @@ async def handle_home_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if parts[0] == "quiz" and len(parts) >= 3 and parts[1] == "length":
         question_count = int(parts[2])
-        course_name = _build_home_profile(user)["course_name"]
         await query.edit_message_text(
-            text=build_quiz_ready_message(course_name, question_count),
+            text=f"Starting your {question_count}-question quiz for {_course_name(user)}.",
             reply_markup=build_home_keyboard(
                 _get_home_service(context).build_home(
                     _build_home_profile(user),
-                    has_active_quiz=getattr(user, "has_active_quiz", False),
+                    has_active_quiz=True,
                 )["buttons"]
             ),
+        )
+        chat = getattr(query, "message", None)
+        chat_id = getattr(getattr(chat, "chat", None), "id", None)
+        if chat_id is None:
+            chat_id = getattr(chat, "chat_id", None)
+        if chat_id is None:
+            return
+        await _get_quiz_session_service(context).start_quiz(
+            bot=context.bot,
+            user_id=update.effective_user.id,
+            chat_id=chat_id,
+            course_id=_course_id(user),
+            course_name=_course_name(user),
+            question_count=question_count,
+            schedule_background=_get_schedule_background(context),
         )

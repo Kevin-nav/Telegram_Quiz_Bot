@@ -1,14 +1,17 @@
 import logging
+import time
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Request, Response, status
 
 from src.cache import redis_client
+from src.bot import telegram_app
 from src.config import WEBHOOK_SECRET
 from src.core.config import get_settings
 from src.database import engine
+from src.infra.redis.state_store import InteractiveStateStore
 from src.infra.redis.idempotency import TelegramUpdateIdempotencyStore
-from src.tasks.arq_client import enqueue_telegram_update
+from src.api.telegram_dispatcher import TelegramUpdateDispatcher
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +27,9 @@ def get_runtime(request: Request):
         settings=get_settings(),
         redis=redis_client,
         db_engine=engine,
+        telegram_app=telegram_app,
+        state_store=InteractiveStateStore(redis_client),
+        dispatcher=None,
     )
 
 
@@ -45,13 +51,23 @@ async def telegram_webhook(request: Request):
 
     payload = await request.json()
     runtime = get_runtime(request)
+    if runtime.dispatcher is None:
+        runtime.dispatcher = TelegramUpdateDispatcher(runtime)
+        runtime.telegram_app.bot_data.setdefault("background_scheduler", runtime.dispatcher)
 
     try:
+        start = time.perf_counter()
         should_enqueue = await claim_telegram_update(runtime.redis, payload)
         if not should_enqueue:
+            logger.info("Duplicate webhook update suppressed in %.2fms.", (time.perf_counter() - start) * 1000)
             return Response(status_code=status.HTTP_200_OK)
 
-        await enqueue_telegram_update(payload)
+        route = await runtime.dispatcher.dispatch(payload)
+        logger.info(
+            "Webhook accepted route=%s latency_ms=%.2f",
+            route,
+            (time.perf_counter() - start) * 1000,
+        )
         return Response(status_code=status.HTTP_200_OK)
     except Exception:
         logger.exception("Error enqueueing webhook update.")

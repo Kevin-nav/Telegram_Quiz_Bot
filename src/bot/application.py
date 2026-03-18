@@ -1,16 +1,25 @@
 import logging
 
-from telegram import BotCommand
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+from telegram import BotCommand, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    PollAnswerHandler,
+)
 
-from src.config import TELEGRAM_BOT_TOKEN
+from src.bot.handlers.commands import help_command, performance_command, quiz_command
 from src.bot.handlers.home import handle_home_callback
 from src.bot.handlers.profile_setup import handle_profile_setup_callback
+from src.bot.handlers.quiz import handle_poll_answer
 from src.bot.handlers.start import start_command
+from src.config import TELEGRAM_BOT_TOKEN
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
 from src.domains.quiz_entry.service import QuizEntryService
+from src.domains.quiz.service import QuizSessionService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +36,36 @@ async def set_bot_commands(application: Application) -> None:
     )
 
 
+async def handle_application_error(
+    update: object, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    logger.exception(
+        "Unhandled Telegram application error.",
+        exc_info=context.error,
+    )
+
+    if not isinstance(update, Update):
+        return
+
+    if update.callback_query:
+        try:
+            await update.callback_query.answer(
+                "Something went wrong. Please try again.",
+                show_alert=True,
+            )
+        except Exception:
+            logger.exception("Failed to answer callback query after bot error.")
+        return
+
+    if update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "Something went wrong on our side. Please try again in a moment."
+            )
+        except Exception:
+            logger.exception("Failed to send fallback error message to Telegram user.")
+
+
 def get_application() -> Application:
     """Create and configure the Telegram application."""
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -34,9 +73,19 @@ def get_application() -> Application:
     application.bot_data["profile_service"] = ProfileService()
     application.bot_data["home_service"] = HomeService()
     application.bot_data["quiz_entry_service"] = QuizEntryService()
+    application.bot_data["quiz_session_service"] = QuizSessionService()
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CallbackQueryHandler(handle_profile_setup_callback, pattern=r"^profile:"))
-    application.add_handler(CallbackQueryHandler(handle_home_callback, pattern=r"^(home:|quiz:length:)"))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("performance", performance_command))
+    application.add_handler(CommandHandler("quiz", quiz_command))
+    application.add_handler(
+        CallbackQueryHandler(handle_profile_setup_callback, pattern=r"^profile:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_home_callback, pattern=r"^(home:|quiz:length:)")
+    )
+    application.add_handler(PollAnswerHandler(handle_poll_answer))
+    application.add_error_handler(handle_application_error)
     return application
 
 

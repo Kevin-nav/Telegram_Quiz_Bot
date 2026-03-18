@@ -7,6 +7,7 @@ metadata:
     component: webhook
 spec:
   replicas: 2
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: adarkwa-bot
@@ -24,7 +25,7 @@ spec:
     spec:
       containers:
       - name: adarkwa-bot
-        image: adarkwa-bot:latest  # Update with your container registry image URI
+        image: __IMAGE__
         imagePullPolicy: Always
         command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
         ports:
@@ -63,7 +64,8 @@ metadata:
     app: adarkwa-bot
     component: worker
 spec:
-  replicas: 1
+  replicas: 2
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: adarkwa-bot
@@ -76,7 +78,7 @@ spec:
     spec:
       containers:
       - name: adarkwa-bot-worker
-        image: adarkwa-bot:latest
+        image: __IMAGE__
         imagePullPolicy: Always
         command: ["arq", "src.tasks.worker.WorkerSettings"]
         envFrom:
