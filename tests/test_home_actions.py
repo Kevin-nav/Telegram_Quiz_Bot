@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from src.bot.handlers.home import handle_home_callback
 
 
@@ -9,7 +8,9 @@ class FakeProfileService:
     def __init__(self, user):
         self.user = user
 
-    async def load_or_initialize_user(self, telegram_user_id: int, display_name: str | None = None):
+    async def load_or_initialize_user(
+        self, telegram_user_id: int, display_name: str | None = None
+    ):
         return self.user
 
 
@@ -54,18 +55,20 @@ async def test_start_quiz_from_home_prompts_for_length():
     await handle_home_callback(update, context)
 
     assert "how many questions" in query.calls[-1]["text"].lower()
-    callbacks = [row[0].callback_data for row in query.calls[-1]["reply_markup"].inline_keyboard]
+    callbacks = [
+        row[0].callback_data for row in query.calls[-1]["reply_markup"].inline_keyboard
+    ]
     assert callbacks == ["quiz:length:10", "quiz:length:20", "quiz:length:30"]
 
 
 @pytest.mark.asyncio
-async def test_change_course_opens_faculty_setup():
+async def test_study_settings_opens_faculty_setup():
     user = SimpleNamespace(
         id=42,
         preferred_course_code="calculus",
         has_active_quiz=False,
     )
-    query = FakeQuery("home:change_course")
+    query = FakeQuery("home:study_settings")
     context = SimpleNamespace(
         application=SimpleNamespace(
             bot_data={

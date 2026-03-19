@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.config import DATABASE_URL
+from src.config import DATABASE_CONNECT_ARGS, DATABASE_URL
 from src.infra.db.base import Base
 
 
@@ -10,6 +10,7 @@ if not DATABASE_URL:
 
 engine = create_async_engine(
     DATABASE_URL,
+    connect_args=DATABASE_CONNECT_ARGS,
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,

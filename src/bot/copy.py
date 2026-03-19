@@ -10,20 +10,11 @@ def build_welcome_message(first_name: str | None) -> str:
 
 
 def build_home_message(profile: Mapping[str, str | None]) -> str:
-    semester = profile.get("semester_name") or "Not set"
-    course = profile.get("course_name") or "No course selected"
     faculty = profile.get("faculty_name") or "Not set"
     program = profile.get("program_name") or "Not set"
     level = profile.get("level_name") or "Not set"
 
-    return (
-        "Study Home\n\n"
-        f"Faculty: {faculty}\n"
-        f"Program: {program}\n"
-        f"Level: {level}\n"
-        f"Semester: {semester}\n"
-        f"Course: {course}"
-    )
+    return f"Study Home\n\nFaculty: {faculty}\nProgram: {program}\nLevel: {level}"
 
 
 def build_help_message() -> str:

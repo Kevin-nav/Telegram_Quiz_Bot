@@ -1,4 +1,5 @@
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 
 DEFAULT_WEBHOOK_SECRET = "super-secret-default-token"
@@ -39,6 +40,26 @@ def normalize_async_database_url(database_url: str) -> str:
     if database_url.startswith("postgresql://"):
         return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     raise ValueError("DATABASE_URL must start with postgresql:// or postgresql+asyncpg://.")
+
+
+def build_async_database_config(database_url: str) -> tuple[str, dict[str, Any]]:
+    normalized_url = normalize_async_database_url(database_url)
+    parsed = urlparse(normalized_url)
+    query_params = parse_qsl(parsed.query, keep_blank_values=True)
+
+    sanitized_query: list[tuple[str, str]] = []
+    connect_args: dict[str, Any] = {}
+
+    for key, value in query_params:
+        if key == "sslmode":
+            connect_args["ssl"] = value
+            continue
+        if key == "channel_binding":
+            continue
+        sanitized_query.append((key, value))
+
+    sanitized_url = parsed._replace(query=urlencode(sanitized_query)).geturl()
+    return sanitized_url, connect_args
 
 
 def normalize_sync_database_url(database_url: str) -> str:

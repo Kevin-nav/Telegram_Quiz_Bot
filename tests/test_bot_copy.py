@@ -5,19 +5,18 @@ from src.bot.copy import (
 )
 
 
-def test_home_copy_mentions_current_course():
+def test_home_copy_mentions_profile_details():
     message = build_home_message(
         {
             "faculty_name": "Faculty of Engineering",
             "program_name": "Mechanical Engineering",
             "level_name": "Level 100",
-            "semester_name": "First Semester",
-            "course_name": "Calculus",
         }
     )
 
-    assert "Semester: First Semester" in message
-    assert "Course: Calculus" in message
+    assert "Faculty of Engineering" in message
+    assert "Mechanical Engineering" in message
+    assert "Level 100" in message
 
 
 def test_welcome_copy_is_short_and_guiding():
