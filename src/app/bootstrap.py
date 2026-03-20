@@ -89,9 +89,6 @@ async def shutdown_web_app(state: ApplicationState) -> None:
     if state.dispatcher is not None:
         await state.dispatcher.shutdown()
 
-    if state.settings.webhook_url:
-        await state.telegram_app.bot.delete_webhook()
-
     await state.telegram_app.stop()
     await state.telegram_app.shutdown()
     await close_arq_pool()
