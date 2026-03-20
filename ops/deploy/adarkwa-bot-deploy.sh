@@ -37,17 +37,18 @@ else
   git -C "${WORKTREE_DIR}" checkout -f "origin/${REPO_BRANCH}"
 fi
 
-crane_args=()
 if [[ -n "${GHCR_USERNAME}" && -n "${GHCR_TOKEN_FILE}" ]]; then
   if [[ ! -f "${GHCR_TOKEN_FILE}" ]]; then
     echo "GHCR token file not found: ${GHCR_TOKEN_FILE}" >&2
     exit 1
   fi
-  crane_args+=(--username "${GHCR_USERNAME}" --password "$(tr -d '\r\n' < "${GHCR_TOKEN_FILE}")")
+  crane auth login ghcr.io \
+    --username "${GHCR_USERNAME}" \
+    --password "$(tr -d '\r\n' < "${GHCR_TOKEN_FILE}")" >/dev/null
 fi
 
 target_image="${IMAGE_REPO}:${TRACKING_TAG}"
-target_digest="$(crane digest "${crane_args[@]}" "${target_image}")"
+target_digest="$(crane digest "${target_image}")"
 immutable_image="${IMAGE_REPO}@${target_digest}"
 
 last_deployed_file="${STATE_DIR}/last-deployed-digest"

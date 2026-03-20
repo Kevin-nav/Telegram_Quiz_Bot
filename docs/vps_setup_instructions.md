@@ -114,7 +114,7 @@ Create a dedicated deployment workspace:
 sudo mkdir -p /opt/adarkwa-study-bot-deploy
 sudo chown "$USER":"$USER" /opt/adarkwa-study-bot-deploy
 cd /opt/adarkwa-study-bot-deploy
-git clone --branch main --single-branch <YOUR_REPO_CLONE_URL> repo
+git clone --branch main --single-branch https://github.com/Kevin-nav/Telegram_Quiz_Bot.git repo
 ```
 
 This checkout is only for deployment automation. Do not use your personal development checkout for the timer-driven deploy process.
