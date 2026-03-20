@@ -29,6 +29,7 @@ The repo contains:
 - `k8s/config.yaml`
 - `k8s/deployment.yaml`
 - `k8s/service.yaml`
+- `k8s/ingress.yaml`
 - `k8s/hpa.yaml`
 - `k8s/migration-job.yaml`
 - `ops/deploy/adarkwa-bot-deploy.sh`
@@ -129,10 +130,10 @@ Use:
 - your real production hostname
 - the in-cluster service DNS name as the tunnel target
 
-Recommended service target:
+Recommended Cloudflare Tunnel target for a host-level `cloudflared` service:
 
 ```text
-http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80
+http://localhost:80
 ```
 
 Recommended webhook base URL:
@@ -145,7 +146,8 @@ https://tg-bot-tanjah.sankoslides.com
 
 - Telegram gets a stable HTTPS endpoint
 - the app remains internal to the cluster
-- the VPS does not need a public ingress controller or public node port for this bot
+- Traefik on K3s handles hostname routing through `k8s/ingress.yaml`
+- the VPS does not need a public node port for this bot
 
 ## 5. Deploy Agent Model
 

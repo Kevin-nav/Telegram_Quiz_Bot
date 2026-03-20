@@ -113,7 +113,7 @@ The recommended production setup is now:
 - `.github/workflows/deploy.yml` runs on `main`, tests again, and publishes production images to GHCR
 - the VPS runs a local deploy agent from `ops/deploy/` as a `systemd` timer
 - the deploy agent watches `ghcr.io/<github-owner>/adarkwa-study-bot:latest`, renders manifests with the exact digest, runs migrations, and rolls out the webhook and worker locally
-- `cloudflared` keeps the Telegram webhook hostname pointed at `http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80`
+- `cloudflared` keeps the Telegram webhook hostname pointed at `http://localhost:80`, and Traefik ingress routes the hostname to `adarkwa-bot-service`
 
 This model keeps Kubernetes credentials off GitHub and avoids exposing the cluster API publicly.
 
@@ -151,7 +151,7 @@ Optional values such as Sentry and R2 settings should follow the same model.
 Use a named Cloudflare Tunnel with your production hostname and point it at the in-cluster service:
 
 ```text
-http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80
+http://localhost:80
 ```
 
-This keeps the app internal to the cluster while giving Telegram a stable HTTPS endpoint.
+Host-level `cloudflared` should target the local Traefik listener on the VPS. Traefik then uses the ingress host rule to route traffic to `adarkwa-bot-service` inside the cluster.

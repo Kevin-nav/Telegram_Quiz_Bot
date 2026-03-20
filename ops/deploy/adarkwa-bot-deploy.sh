@@ -73,6 +73,9 @@ sed \
 kubectl apply -f "${WORKTREE_DIR}/k8s/namespace.yaml"
 kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/config.yaml"
 kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/service.yaml"
+if [[ -f "${WORKTREE_DIR}/k8s/ingress.yaml" ]]; then
+  kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/ingress.yaml"
+fi
 if [[ -f "${WORKTREE_DIR}/k8s/hpa.yaml" ]]; then
   kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/hpa.yaml"
 fi

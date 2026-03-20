@@ -94,11 +94,13 @@ sudo systemctl restart cloudflared
 sudo systemctl status cloudflared
 ```
 
-Your Cloudflare route should keep pointing at the in-cluster service:
+Your Cloudflare route should point at the local Traefik listener on the VPS:
 
 ```text
-http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80
+http://localhost:80
 ```
+
+Do not point a host-level `cloudflared` service directly at `*.svc.cluster.local`. That DNS name only works inside Kubernetes.
 
 Set the bot webhook base URL to your Cloudflare hostname, for example:
 
@@ -233,6 +235,13 @@ Enable and start the timer:
 sudo systemctl daemon-reload
 sudo systemctl enable --now adarkwa-bot-deploy.timer
 sudo systemctl start adarkwa-bot-deploy.service
+```
+
+Ensure the ingress exists so Traefik can route the public hostname to the bot service:
+
+```bash
+kubectl apply -f /opt/adarkwa-study-bot-deploy/repo/k8s/ingress.yaml
+kubectl get ingress -n adarkwa-study-bot
 ```
 
 ## 8. Update GitHub Actions Secrets

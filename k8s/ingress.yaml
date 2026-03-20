@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: adarkwa-bot-ingress
+  namespace: adarkwa-study-bot
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: tg-bot-tanjah.sankoslides.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adarkwa-bot-service
+                port:
+                  number: 80
