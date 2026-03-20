@@ -1,20 +1,14 @@
-name: Deploy
+name: Build and Publish Production Image
 
 on:
   push:
     branches:
       - main
-      - master
   workflow_dispatch:
 
 concurrency:
-  group: adarkwa-study-bot-production
+  group: adarkwa-study-bot-production-image
   cancel-in-progress: true
-
-env:
-  NAMESPACE: adarkwa-study-bot
-  APP_SECRET_NAME: adarkwa-bot-secret
-  GHCR_PULL_SECRET_NAME: ghcr-pull-secret
 
 jobs:
   test:
@@ -38,7 +32,7 @@ jobs:
       - name: Run test suite
         run: python -m pytest tests -q
 
-  build-and-deploy:
+  build-and-publish:
     needs: test
     runs-on: ubuntu-latest
     environment: production
@@ -50,7 +44,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Prepare deployment variables
+      - name: Prepare image references
         id: prep
         shell: bash
         run: |
@@ -58,12 +52,10 @@ jobs:
           owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           image_repo="ghcr.io/${owner_lc}/adarkwa-study-bot"
           image_tag="${GITHUB_SHA}"
-          migration_job="adarkwa-bot-migrate-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
 
           echo "image_repo=${image_repo}" >> "${GITHUB_OUTPUT}"
-          echo "image=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "sha_image=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
           echo "latest_image=${image_repo}:latest" >> "${GITHUB_OUTPUT}"
-          echo "migration_job=${migration_job}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -72,111 +64,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.prep.outputs.image_repo }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=latest
+
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ steps.prep.outputs.image }}
-            ${{ steps.prep.outputs.latest_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: latest
-
-      - name: Configure kubeconfig
+      - name: Publish workflow summary
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p "${HOME}/.kube"
-          umask 077
-          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 --decode > "${HOME}/.kube/config"
-          kubectl version --client
-          kubectl cluster-info
-
-      - name: Ensure namespace exists
-        run: kubectl apply -f k8s/namespace.yaml
-
-      - name: Configure optional GHCR pull secret
-        if: ${{ secrets.GHCR_PULL_USERNAME != '' && secrets.GHCR_PULL_TOKEN != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl create secret docker-registry "${GHCR_PULL_SECRET_NAME}" \
-            --namespace "${NAMESPACE}" \
-            --docker-server ghcr.io \
-            --docker-username "${{ secrets.GHCR_PULL_USERNAME }}" \
-            --docker-password "${{ secrets.GHCR_PULL_TOKEN }}" \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-
-          kubectl patch serviceaccount default \
-            --namespace "${NAMESPACE}" \
-            --type merge \
-            --patch "{\"imagePullSecrets\":[{\"name\":\"${GHCR_PULL_SECRET_NAME}\"}]}"
-
-      - name: Apply application config
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl apply --namespace "${NAMESPACE}" -f k8s/config.yaml
-
-          kubectl create secret generic "${APP_SECRET_NAME}" \
-            --namespace "${NAMESPACE}" \
-            --from-literal=TELEGRAM_BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            --from-literal=DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            --from-literal=REDIS_URL="${{ secrets.REDIS_URL }}" \
-            --from-literal=WEBHOOK_URL="${{ secrets.WEBHOOK_URL }}" \
-            --from-literal=WEBHOOK_SECRET="${{ secrets.WEBHOOK_SECRET }}" \
-            --from-literal=SENTRY_DSN="${{ secrets.SENTRY_DSN }}" \
-            --from-literal=R2_ACCOUNT_ID="${{ secrets.R2_ACCOUNT_ID }}" \
-            --from-literal=R2_ACCESS_KEY_ID="${{ secrets.R2_ACCESS_KEY_ID }}" \
-            --from-literal=R2_SECRET_ACCESS_KEY="${{ secrets.R2_SECRET_ACCESS_KEY }}" \
-            --from-literal=R2_BUCKET_NAME="${{ secrets.R2_BUCKET_NAME }}" \
-            --from-literal=R2_PUBLIC_BASE_URL="${{ secrets.R2_PUBLIC_BASE_URL }}" \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-
-      - name: Render manifests with immutable image tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          sed "s|__IMAGE__|${{ steps.prep.outputs.image }}|g" k8s/deployment.yaml > /tmp/deployment.yaml
-          sed \
-            -e "s|__IMAGE__|${{ steps.prep.outputs.image }}|g" \
-            -e "s|__MIGRATION_JOB_NAME__|${{ steps.prep.outputs.migration_job }}|g" \
-            k8s/migration-job.yaml > /tmp/migration-job.yaml
-
-      - name: Apply service, autoscaling, and deployments
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl apply --namespace "${NAMESPACE}" -f k8s/service.yaml
-          kubectl apply --namespace "${NAMESPACE}" -f k8s/hpa.yaml
-          kubectl apply --namespace "${NAMESPACE}" -f /tmp/deployment.yaml
-
-      - name: Run database migrations
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl apply --namespace "${NAMESPACE}" -f /tmp/migration-job.yaml
-
-          if ! kubectl wait \
-            --namespace "${NAMESPACE}" \
-            --for=condition=complete \
-            "job/${{ steps.prep.outputs.migration_job }}" \
-            --timeout=300s; then
-            kubectl logs --namespace "${NAMESPACE}" "job/${{ steps.prep.outputs.migration_job }}" || true
-            exit 1
-          fi
-
-      - name: Wait for deployment rollouts
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl rollout status deployment/adarkwa-bot-webhook --namespace "${NAMESPACE}" --timeout=300s
-          kubectl rollout status deployment/adarkwa-bot-worker --namespace "${NAMESPACE}" --timeout=300s
+          {
+            echo "## Published production image"
+            echo
+            echo "- Repository: \`${{ steps.prep.outputs.image_repo }}\`"
+            echo "- SHA tag: \`${{ steps.prep.outputs.sha_image }}\`"
+            echo "- Tracking tag: \`${{ steps.prep.outputs.latest_image }}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

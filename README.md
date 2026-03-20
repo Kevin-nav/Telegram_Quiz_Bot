@@ -107,85 +107,51 @@ alembic upgrade head
 
 ## Production Deployment
 
-The repo now includes a GitHub-driven deployment path for a VPS-hosted Kubernetes cluster:
+The recommended production setup is now:
 
 - `.github/workflows/ci.yml` runs tests on push and pull request
-- `.github/workflows/deploy.yml` builds a Docker image, pushes it to GHCR, applies Kubernetes config, runs migrations, and rolls out web + worker on pushes to `main` or `master`
-- `k8s/namespace.yaml` creates the `adarkwa-study-bot` namespace
-- `k8s/config.yaml` contains non-secret runtime config
-- GitHub Actions generates the Kubernetes secret from GitHub Secrets during deployment
+- `.github/workflows/deploy.yml` runs on `main`, tests again, and publishes production images to GHCR
+- the VPS runs a local deploy agent from `ops/deploy/` as a `systemd` timer
+- the deploy agent watches `ghcr.io/<github-owner>/adarkwa-study-bot:latest`, renders manifests with the exact digest, runs migrations, and rolls out the webhook and worker locally
+- `cloudflared` keeps the Telegram webhook hostname pointed at `http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80`
 
-For the full production checklist, see [docs/deployment_setup.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/deployment_setup.md).
+This model keeps Kubernetes credentials off GitHub and avoids exposing the cluster API publicly.
 
-### GitHub Secrets
+For the full production checklist, see [docs/deployment_setup.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/deployment_setup.md) and [docs/vps_setup_instructions.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/vps_setup_instructions.md).
 
-Add these repository secrets before enabling auto-deploy:
+### GitHub and Registry Role
 
-Required:
+GitHub is responsible for:
 
-- `KUBE_CONFIG_B64`
+- running CI
+- publishing:
+  - `ghcr.io/<github-owner>/adarkwa-study-bot:<git-sha>`
+  - `ghcr.io/<github-owner>/adarkwa-study-bot:latest`
+
+GitHub is not responsible for:
+
+- holding kubeconfig
+- connecting directly to Kubernetes
+- recreating runtime Kubernetes secrets every deploy
+
+### Runtime Secrets
+
+Production runtime secrets should be created from the VPS and stored in Kubernetes:
+
 - `TELEGRAM_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
 - `WEBHOOK_URL`
 - `WEBHOOK_SECRET`
 
-Optional:
-
-- `SENTRY_DSN`
-- `R2_ACCOUNT_ID`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_BUCKET_NAME`
-- `R2_PUBLIC_BASE_URL`
-- `GHCR_PULL_USERNAME`
-- `GHCR_PULL_TOKEN`
-
-`GHCR_PULL_USERNAME` and `GHCR_PULL_TOKEN` are only needed if the GHCR package stays private. If you make the package public, the cluster can pull the image without an image pull secret.
-
-### Kubeconfig Secret
-
-`KUBE_CONFIG_B64` should contain the base64-encoded kubeconfig for the target cluster.
-
-Linux/macOS:
-
-```bash
-base64 -w 0 ~/.kube/config
-```
-
-PowerShell:
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.kube\config"))
-```
-
-### First-Time Cluster Bootstrap
-
-1. Create or confirm the VPS-hosted Kubernetes cluster is reachable from your local machine.
-2. Make sure the cluster has a metrics server if you want the included HPAs to scale correctly.
-3. Add all required GitHub Secrets to the repository.
-4. Push to `main` or `master`, or trigger the `Deploy` workflow manually from GitHub Actions.
-5. Confirm the `adarkwa-study-bot` namespace, web deployment, worker deployment, and migration job were created successfully.
-
-### Image Registry
-
-The deployment workflow publishes images to GitHub Container Registry using:
-
-```text
-ghcr.io/<github-owner>/adarkwa-study-bot:<git-sha>
-ghcr.io/<github-owner>/adarkwa-study-bot:latest
-```
-
-The Kubernetes deployment always rolls to the immutable SHA-tagged image built by the deploy workflow.
+Optional values such as Sentry and R2 settings should follow the same model.
 
 ### Cloudflare Tunnel Recommendation
 
-For Telegram webhooks, use a named Cloudflare Tunnel and your own domain rather than a free quick tunnel.
+Use a named Cloudflare Tunnel with your production hostname and point it at the in-cluster service:
 
-Recommended production routing:
+```text
+http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80
+```
 
-- public hostname at Cloudflare
-- named Cloudflare Tunnel
-- tunnel target pointing to your Kubernetes ingress or an in-cluster service bridge for `adarkwa-bot-service`
-
-This gives you a stable HTTPS webhook URL for Telegram and a more production-like latency path than local quick tunnels.
+This keeps the app internal to the cluster while giving Telegram a stable HTTPS endpoint.

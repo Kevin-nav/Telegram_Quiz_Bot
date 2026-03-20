@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll GHCR and deploy the latest Adarkwa Study Bot production image
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=3m
+RandomizedDelaySec=45s
+Unit=adarkwa-bot-deploy.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

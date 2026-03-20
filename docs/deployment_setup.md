@@ -1,25 +1,27 @@
 # Deployment Setup Guide
 
-This guide covers the full production deployment setup for `@Adarkwa_Study_Bot` on a VPS-hosted Kubernetes cluster with:
+This guide covers the recommended production deployment shape for `@Adarkwa_Study_Bot`:
 
-- GitHub Actions for CI/CD
+- GitHub Actions for CI and image publishing
 - GitHub Container Registry for images
-- GitHub Secrets as the source of truth for runtime secrets
-- Kubernetes for the web app, worker, and migrations
-- Cloudflare Tunnel and your own domain for the Telegram webhook
+- K3s on a VPS for runtime
+- Kubernetes for the webhook, worker, and migration job
+- Cloudflare Tunnel for the Telegram webhook hostname
+- a pull-based deploy agent on the VPS
 
 The deployment flow is:
 
-1. Push to `main` or `master`
+1. Push to `main`
 2. GitHub Actions runs tests
-3. GitHub Actions builds and pushes the Docker image to GHCR
-4. GitHub Actions applies config and secrets to Kubernetes
-5. GitHub Actions runs database migrations
-6. GitHub Actions rolls out the web and worker deployments
+3. GitHub Actions builds and pushes the image to GHCR
+4. The VPS deploy agent detects the new `latest` digest
+5. The VPS applies Kubernetes manifests locally
+6. The VPS runs database migrations
+7. The VPS rolls out the webhook and worker deployments
 
 ## 1. What Gets Deployed
 
-The repo now contains:
+The repo contains:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/deploy.yml`
@@ -29,307 +31,231 @@ The repo now contains:
 - `k8s/service.yaml`
 - `k8s/hpa.yaml`
 - `k8s/migration-job.yaml`
+- `ops/deploy/adarkwa-bot-deploy.sh`
+- `ops/deploy/adarkwa-bot-deploy.service`
+- `ops/deploy/adarkwa-bot-deploy.timer`
 
 At deploy time:
 
 - `k8s/config.yaml` provides non-secret runtime values
-- GitHub Actions creates `adarkwa-bot-secret` in Kubernetes from GitHub Secrets
-- the deployment manifest is rendered with the exact image tag for the commit being deployed
+- the Kubernetes secret already present in the cluster supplies runtime secrets
+- the VPS deploy script renders the deployment and migration job with the exact image digest to deploy
 
 ## 2. GitHub Setup
 
-### 2.1. Repository Secrets
+### 2.1. GitHub Actions Role
 
-Add these secrets in GitHub:
+GitHub Actions is responsible for:
 
-GitHub repository -> `Settings` -> `Secrets and variables` -> `Actions`
+- running tests
+- building the production image
+- publishing immutable and tracking tags to GHCR
 
-Required:
+GitHub Actions is not responsible for:
 
-- `KUBE_CONFIG_B64`
-- `TELEGRAM_BOT_TOKEN`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `WEBHOOK_URL`
-- `WEBHOOK_SECRET`
+- storing kubeconfig
+- connecting directly to the cluster
+- creating runtime Kubernetes secrets
 
-Optional:
+### 2.2. GHCR Images
 
-- `SENTRY_DSN`
-- `R2_ACCOUNT_ID`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_BUCKET_NAME`
-- `R2_PUBLIC_BASE_URL`
-- `GHCR_PULL_USERNAME`
-- `GHCR_PULL_TOKEN`
-
-### 2.2. GitHub Container Registry
-
-The workflow publishes images to:
+The workflow publishes:
 
 ```text
 ghcr.io/<github-owner>/adarkwa-study-bot:<git-sha>
 ghcr.io/<github-owner>/adarkwa-study-bot:latest
 ```
 
-You have two choices:
+The VPS deploy agent watches `:latest` and deploys the underlying digest.
 
-1. Make the GHCR package public
-2. Keep the GHCR package private and supply:
-   - `GHCR_PULL_USERNAME`
-   - `GHCR_PULL_TOKEN`
+### 2.3. GitHub Secrets
 
-If the package is private, the deploy workflow creates a Kubernetes docker-registry pull secret and patches the default service account in the namespace to use it.
+For this deployment model, GitHub does not need `KUBE_CONFIG_B64`.
 
-### 2.3. Kubeconfig Secret
+The default `GITHUB_TOKEN` is sufficient for the workflow to push the image package as long as workflow package write permissions remain enabled.
 
-`KUBE_CONFIG_B64` must be the base64-encoded kubeconfig for your target cluster.
-
-Linux/macOS:
-
-```bash
-base64 -w 0 ~/.kube/config
-```
-
-PowerShell:
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.kube\config"))
-```
-
-Paste the resulting single-line value into the GitHub secret.
-
-### 2.4. Workflow Permissions
-
-The deploy workflow uses:
-
-- repository read access
-- package write access for GHCR
-
-No extra GitHub App or cloud IAM integration is required for this setup because the cluster is accessed using the kubeconfig secret.
+If you later add signing, notifications, or release promotion steps, those may require extra GitHub secrets, but runtime app secrets should stay off GitHub for production deployment.
 
 ## 3. VPS and Kubernetes Setup
 
-### 3.1. Minimum Cluster Requirements
-
-Your VPS-hosted Kubernetes cluster should have:
-
-- a working Kubernetes control plane
-- DNS/network access to Neon, Redis, Telegram, GitHub, and Cloudflare
-- outbound HTTPS access
-- enough resources for:
-  - 2 web replicas
-  - 2 worker replicas
-  - 1 migration job during deploy
+### 3.1. Minimum VPS Shape
 
 Recommended minimum:
 
 - 2 vCPU
 - 4 GB RAM
+- Ubuntu 24.04 LTS
 
 ### 3.2. Kubernetes Requirements
 
-Make sure the cluster has:
+Your VPS-hosted K3s cluster should have:
 
-- `kubectl` access working from your admin machine
-- metrics-server installed if you want the included HPA resources to function correctly
+- working local `kubectl` access
+- outbound access to GitHub, GHCR, Cloudflare, Telegram, Neon, and Redis
+- the `adarkwa-study-bot` namespace
+- an application secret created from the VPS
 
-The workflow creates the namespace automatically, so you do not need to create `adarkwa-study-bot` by hand unless you want to inspect it before first deploy.
+### 3.3. Kubernetes Secrets
 
-### 3.3. Image Pull Strategy
-
-If GHCR is public:
-
-- no cluster-side image pull secret is required
-
-If GHCR is private:
-
-- add `GHCR_PULL_USERNAME`
-- add `GHCR_PULL_TOKEN`
-- the deploy workflow will create/update the `ghcr-pull-secret` Kubernetes secret automatically
-
-### 3.4. Database and Redis
-
-Before first deploy, confirm:
-
-- the Neon/Postgres database exists
-- the Redis instance exists
-- both are reachable from the VPS cluster region
-- the connection strings are correct and production-ready
-
-For best latency:
-
-- place the VPS, Redis, and database in the same region where possible
-
-## 4. Cloudflare and Domain Setup
-
-### 4.1. Why This Matters
-
-For Telegram webhooks, a stable HTTPS endpoint is required. Quick/free local tunnels are fine for testing, but production should use:
-
-- your own domain
-- a named Cloudflare Tunnel
-
-### 4.2. Recommended Production Shape
-
-Use one of these:
-
-1. Cloudflare Tunnel running in-cluster or on the VPS, targeting your Kubernetes ingress/service path
-2. An ingress controller on the cluster, with Cloudflare proxying the public hostname to it
-
-The important outcome is:
-
-- Telegram sees a stable HTTPS URL
-- that URL forwards to the `adarkwa-bot-service` webhook path
-
-### 4.3. Webhook URL Secret
-
-Set `WEBHOOK_URL` in GitHub Secrets to the public HTTPS base URL for the bot, for example:
-
-```text
-https://bot.yourdomain.com
-```
-
-The application will use this when registering the Telegram webhook.
-
-## 5. First Deployment Checklist
-
-### Step 1: Confirm local cluster access
-
-Run locally:
-
-```bash
-kubectl get nodes
-```
-
-Expected:
-
-- your VPS cluster responds successfully
-
-### Step 2: Base64-encode kubeconfig
-
-Generate `KUBE_CONFIG_B64` and add it to GitHub Secrets.
-
-### Step 3: Add all required GitHub secrets
-
-Do not skip:
+Create `adarkwa-bot-secret` from the VPS with values such as:
 
 - `TELEGRAM_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
 - `WEBHOOK_URL`
 - `WEBHOOK_SECRET`
+- optional Sentry and R2 settings
 
-### Step 4: Decide on GHCR visibility
+Do not regenerate these secrets from GitHub Actions on every deploy.
 
-Choose one:
+### 3.4. Image Pull Strategy
 
-- public package
-- private package with `GHCR_PULL_USERNAME` and `GHCR_PULL_TOKEN`
+Recommended:
 
-### Step 5: Push to `main` or `master`
+- keep GHCR private
+- create a read-only package token
+- store it only on the VPS
+- create a Kubernetes `docker-registry` pull secret once
 
-The workflow will:
+If the package is public, the cluster pull secret becomes optional.
 
-- test
-- build
-- push image
-- apply namespace/config/secrets
-- run migration
-- roll out web and worker
+## 4. Cloudflare and Domain Setup
 
-### Step 6: Verify rollout
+### 4.1. Recommended Production Shape
 
-Run:
+Use:
 
-```bash
-kubectl get pods -n adarkwa-study-bot
-kubectl get jobs -n adarkwa-study-bot
-kubectl get svc -n adarkwa-study-bot
+- a named Cloudflare Tunnel
+- your real production hostname
+- the in-cluster service DNS name as the tunnel target
+
+Recommended service target:
+
+```text
+http://adarkwa-bot-service.adarkwa-study-bot.svc.cluster.local:80
 ```
 
-Expected:
+Recommended webhook base URL:
 
-- web pods running
-- worker pods running
-- migration job completed
-- service present
+```text
+https://tg-bot-tanjah.sankoslides.com
+```
 
-## 6. Ongoing Deployment Flow
+### 4.2. Why This Shape
 
-After first setup, normal deployment is simple:
+- Telegram gets a stable HTTPS endpoint
+- the app remains internal to the cluster
+- the VPS does not need a public ingress controller or public node port for this bot
 
-1. push changes to `main` or `master`
-2. GitHub Actions deploys automatically
-3. verify rollout in the Actions tab and with `kubectl rollout status`
+## 5. Deploy Agent Model
+
+The VPS deploy agent runs as a `systemd` one-shot service plus timer.
+
+Responsibilities:
+
+- check the digest for `ghcr.io/<owner>/adarkwa-study-bot:latest`
+- refresh a dedicated checkout at `origin/main`
+- render the deployment and migration manifests with the immutable image digest
+- apply namespace, config, and service manifests
+- run the migration job
+- wait for the migration job to complete
+- apply the deployment manifest
+- wait for webhook and worker rollout success
+- record the last deployed digest locally
+
+Why this is preferred:
+
+- no self-hosted runner to maintain
+- no public Kubernetes API
+- no cluster credentials in GitHub
+- migration-before-rollout stays explicit and easy to debug
+
+## 6. First Deployment Checklist
+
+1. Harden the VPS and enable `ufw`.
+2. Install K3s and confirm `kubectl get nodes` works locally.
+3. Install `cloudflared` with your tunnel token.
+4. Clone the repo into the dedicated deploy directory.
+5. Create the Kubernetes runtime secret from the VPS.
+6. Create the GHCR pull secret if the image package is private.
+7. Install `crane`, the deploy script, and the `systemd` timer.
+8. Push to `main`.
+9. Confirm the new image is published and deployed.
+
+## 7. Ongoing Deployment Flow
+
+Normal production deployment:
+
+1. push changes to `main`
+2. GitHub runs tests and publishes the image
+3. the VPS timer detects the new digest
+4. the VPS performs the deployment locally
 
 Useful commands:
 
 ```bash
+systemctl status adarkwa-bot-deploy.timer
+systemctl status adarkwa-bot-deploy.service
+journalctl -u adarkwa-bot-deploy.service -n 100 --no-pager
 kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
-kubectl logs deployment/adarkwa-bot-webhook -n adarkwa-study-bot
-kubectl logs deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl logs job/<migration-job-name> -n adarkwa-study-bot
 ```
 
-## 7. Troubleshooting
+## 8. Security Notes
 
-### GitHub Actions deploy fails before cluster access
+Recommended baseline:
+
+- no public inbound access to Kubernetes API port `6443`
+- no kubeconfig stored in GitHub Secrets
+- SSH keys only
+- disabled password authentication
+- GHCR read-only token stored on the VPS only
+- runtime app secrets stored in Kubernetes, created from the VPS
+
+## 9. Troubleshooting
+
+### The deploy timer does not update
 
 Check:
 
-- `KUBE_CONFIG_B64` is valid
-- the kubeconfig points at the correct cluster
-- the cluster is reachable from GitHub-hosted runners
+- `systemctl status adarkwa-bot-deploy.timer`
+- `journalctl -u adarkwa-bot-deploy.service`
+- whether the GHCR token is valid
 
-### Pods cannot pull image
+### The cluster cannot pull the image
 
 Check:
 
-- GHCR package visibility
-- `GHCR_PULL_USERNAME`
-- `GHCR_PULL_TOKEN`
-- whether `ghcr-pull-secret` exists in namespace `adarkwa-study-bot`
+- whether the GHCR package is private or public
+- whether `ghcr-pull-secret` exists
+- whether the namespace service account references the image pull secret
 
-### Migration job fails
+### The migration job fails
 
 Check:
 
 - `DATABASE_URL`
-- database reachability from the cluster
-- Alembic state and logs
+- database reachability from the VPS
+- Alembic logs from the migration job
 
-View logs:
-
-```bash
-kubectl logs job/<migration-job-name> -n adarkwa-study-bot
-```
-
-### Webhook registers but Telegram feels slow
+### The webhook is unreachable
 
 Check:
 
-- Redis and database region placement
-- Cloudflare tunnel placement
-- whether the app is still routing through a local/dev tunnel
+- `systemctl status cloudflared`
+- the Cloudflare route target
+- the Kubernetes service and webhook pod health
 
-Production performance will be much better with:
+## 10. Recommended Order of Operations
 
-- VPS-hosted web app
-- same-region Redis
-- same-region database
-- named Cloudflare Tunnel
+If you want the cleanest production path, do this in order:
 
-## 8. Recommended Order of Operations
-
-If you want the cleanest setup path, do this in order:
-
-1. prepare the VPS Kubernetes cluster
-2. verify `kubectl` access locally
-3. set up the real domain and Cloudflare Tunnel
-4. add GitHub Secrets
-5. choose GHCR public or private
-6. push to `main` or `master`
-7. verify rollout
-8. update Telegram webhook if needed by redeploying with the final `WEBHOOK_URL`
+1. harden the VPS
+2. install K3s
+3. install Cloudflare Tunnel
+4. create the Kubernetes runtime secret
+5. create the GHCR pull secret
+6. install the local deploy agent
+7. push to `main`
+8. verify rollout
