@@ -6,6 +6,7 @@ from uuid import uuid4
 from telegram import PollAnswer
 
 from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
+from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
 from src.infra.redis.state_store import InteractiveStateStore
 from src.tasks.arq_client import (
     enqueue_generate_quiz_session,
@@ -18,8 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class QuizSessionService:
-    def __init__(self, state_store: InteractiveStateStore | None = None):
+    def __init__(
+        self,
+        state_store: InteractiveStateStore | None = None,
+        question_bank_repository: QuestionBankRepository | None = None,
+    ):
         self.state_store = state_store
+        self.question_bank_repository = question_bank_repository or QuestionBankRepository()
 
     def set_state_store(self, state_store: InteractiveStateStore) -> None:
         self.state_store = state_store
@@ -214,9 +220,42 @@ class QuizSessionService:
     ) -> list[QuizQuestion]:
         cached_questions = await self.state_store.get_question_bank(course_id)
         if cached_questions is None or len(cached_questions) < question_count:
-            cached_questions = self._build_placeholder_questions(course_name, max(question_count, 30))
-            await self.state_store.cache_question_bank(course_id, cached_questions)
+            cached_questions = await self._load_ready_questions(course_id)
+            if cached_questions:
+                await self.state_store.cache_question_bank(course_id, cached_questions)
+            else:
+                cached_questions = self._build_placeholder_questions(
+                    course_name, max(question_count, 30)
+                )
+                await self.state_store.cache_question_bank(course_id, cached_questions)
         return cached_questions[:question_count]
+
+    async def _load_ready_questions(self, course_id: str) -> list[QuizQuestion]:
+        ready_questions = await self.question_bank_repository.list_ready_questions(course_id)
+        quiz_questions: list[QuizQuestion] = []
+
+        for question in ready_questions:
+            if question.correct_option_text not in question.options:
+                logger.warning(
+                    "Skipping question %s because correct_option_text is not in options.",
+                    question.question_key,
+                )
+                continue
+
+            quiz_questions.append(
+                QuizQuestion(
+                    question_id=question.question_key,
+                    prompt=question.question_text,
+                    options=list(question.options),
+                    correct_option_id=question.options.index(question.correct_option_text),
+                    explanation=question.short_explanation,
+                    topic_id=question.topic_id,
+                    has_latex=question.has_latex,
+                    explanation_asset_url=question.explanation_asset_url,
+                )
+            )
+
+        return quiz_questions
 
     def _build_placeholder_questions(
         self, course_name: str, question_count: int
