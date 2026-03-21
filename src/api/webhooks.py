@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Request, Response, status
 
+from src.app.bootstrap import startup_web_app
 from src.cache import redis_client
 from src.bot import telegram_app
 from src.config import WEBHOOK_SECRET
@@ -42,6 +43,10 @@ async def claim_telegram_update(redis_conn, payload: dict) -> bool:
     return await store.claim_update(update_id)
 
 
+def runtime_accepting_webhooks(runtime) -> bool:
+    return getattr(runtime, "startup_ready", True)
+
+
 @router.post("/webhook")
 async def telegram_webhook(request: Request):
     secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
@@ -51,6 +56,14 @@ async def telegram_webhook(request: Request):
 
     payload = await request.json()
     runtime = get_runtime(request)
+    if not runtime_accepting_webhooks(runtime):
+        await startup_web_app(runtime)
+    if not runtime_accepting_webhooks(runtime):
+        logger.warning(
+            "Rejecting webhook while runtime is degraded.",
+            extra={"startup_error": getattr(runtime, "startup_error", None)},
+        )
+        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
     if runtime.dispatcher is None:
         runtime.dispatcher = TelegramUpdateDispatcher(runtime)
         runtime.telegram_app.bot_data.setdefault("background_scheduler", runtime.dispatcher)

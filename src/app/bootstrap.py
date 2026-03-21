@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +18,7 @@ from src.infra.redis.state_store import InteractiveStateStore
 from src.tasks.arq_client import close_arq_pool, init_arq_pool
 
 logger = logging.getLogger(__name__)
+_startup_lock = asyncio.Lock()
 
 
 @dataclass
@@ -28,6 +31,13 @@ class ApplicationState:
     state_store: InteractiveStateStore
     dispatcher: TelegramUpdateDispatcher | None = None
     arq_pool: Any = None
+    startup_ready: bool = False
+    startup_error: str | None = None
+    telegram_initialized: bool = False
+    telegram_started: bool = False
+    webhook_registered: bool = False
+    last_startup_attempt_at: float | None = None
+    startup_retry_interval_seconds: float = 30.0
 
 
 async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
@@ -47,8 +57,6 @@ async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
     if include_arq:
         state.arq_pool = await init_arq_pool()
     configure_application_services(state)
-    state.dispatcher = TelegramUpdateDispatcher(state)
-    state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
     return state
 
 
@@ -64,23 +72,88 @@ def configure_application_services(state: ApplicationState) -> None:
 
 
 async def startup_web_app(state: ApplicationState) -> None:
-    logger.info("Starting up Adarkwa Study Bot web application.")
-
-    if state.arq_pool is None:
-        state.arq_pool = await init_arq_pool()
-
-    await state.telegram_app.initialize()
-    await state.telegram_app.start()
-    await set_bot_commands(state.telegram_app)
-
-    if state.settings.webhook_url:
-        webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
-        await state.telegram_app.bot.set_webhook(
-            url=webhook_path,
-            secret_token=state.settings.webhook_secret,
-            allowed_updates=["message", "callback_query", "poll_answer"],
-            max_connections=100,
+    async with _startup_lock:
+        if getattr(state, "startup_ready", False):
+            return
+        last_startup_attempt_at = getattr(state, "last_startup_attempt_at", None)
+        startup_retry_interval_seconds = getattr(
+            state,
+            "startup_retry_interval_seconds",
+            30.0,
         )
+        if (
+            last_startup_attempt_at is not None
+            and time.monotonic() - last_startup_attempt_at
+            < startup_retry_interval_seconds
+        ):
+            return
+
+        state.last_startup_attempt_at = time.monotonic()
+        logger.info("Starting up Adarkwa Study Bot web application.")
+
+        if state.arq_pool is None:
+            try:
+                state.arq_pool = await init_arq_pool()
+            except Exception as exc:
+                state.startup_error = f"redis_unavailable:{exc.__class__.__name__}"
+                logger.exception(
+                    "Starting in degraded mode because Redis/ARQ initialization failed."
+                )
+                return
+
+        try:
+            await state.telegram_app.initialize()
+            state.telegram_initialized = True
+            await state.telegram_app.start()
+            state.telegram_started = True
+            await set_bot_commands(state.telegram_app)
+            state.dispatcher = TelegramUpdateDispatcher(state)
+            state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
+
+            if state.settings.webhook_url:
+                webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
+                await state.telegram_app.bot.set_webhook(
+                    url=webhook_path,
+                    secret_token=state.settings.webhook_secret,
+                    allowed_updates=["message", "callback_query", "poll_answer"],
+                    max_connections=100,
+                )
+                state.webhook_registered = True
+
+            state.startup_ready = True
+            state.startup_error = None
+        except Exception as exc:
+            state.startup_error = f"telegram_startup_failed:{exc.__class__.__name__}"
+            logger.exception("Telegram startup failed; cleaning up partial startup state.")
+
+            if state.webhook_registered:
+                try:
+                    await state.telegram_app.bot.delete_webhook()
+                except Exception:
+                    logger.exception("Failed to remove webhook during startup cleanup.")
+                state.webhook_registered = False
+
+            if state.dispatcher is not None:
+                try:
+                    await state.dispatcher.shutdown()
+                finally:
+                    state.dispatcher = None
+                    state.telegram_app.bot_data.pop("background_scheduler", None)
+
+            if state.telegram_started:
+                try:
+                    await state.telegram_app.stop()
+                finally:
+                    state.telegram_started = False
+
+            if state.telegram_initialized:
+                try:
+                    await state.telegram_app.shutdown()
+                finally:
+                    state.telegram_initialized = False
+
+            state.startup_ready = False
+            return
 
 
 async def shutdown_web_app(state: ApplicationState) -> None:
@@ -89,9 +162,19 @@ async def shutdown_web_app(state: ApplicationState) -> None:
     if state.dispatcher is not None:
         await state.dispatcher.shutdown()
 
-    await state.telegram_app.stop()
-    await state.telegram_app.shutdown()
+    if state.telegram_started:
+        await state.telegram_app.stop()
+        state.telegram_started = False
+    if state.telegram_initialized:
+        await state.telegram_app.shutdown()
+        state.telegram_initialized = False
+    state.telegram_started = False
+    state.webhook_registered = False
+    state.startup_ready = False
+    state.dispatcher = None
     await close_arq_pool()
+    state.arq_pool = None
+    state.last_startup_attempt_at = None
 
 
 async def startup_worker_app(state: ApplicationState) -> None:

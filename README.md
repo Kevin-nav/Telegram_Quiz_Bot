@@ -127,6 +127,7 @@ The recommended production setup is now:
 - the VPS runs a local deploy agent from `ops/deploy/` as a `systemd` timer
 - the deploy agent watches `ghcr.io/<github-owner>/adarkwa-study-bot:latest`, renders manifests with the exact digest, runs migrations, and rolls out the webhook and worker locally
 - `cloudflared` keeps the Telegram webhook hostname pointed at `http://localhost:80`, and Traefik ingress routes the hostname to `adarkwa-bot-service`
+- Redis is a VPS-local `valkey-server` or `redis-server` instance reached from Kubernetes through the VPS private IP, not a request-metered hosted tier
 
 This model keeps Kubernetes credentials off GitHub and avoids exposing the cluster API publicly.
 
@@ -158,6 +159,14 @@ Production runtime secrets should be created from the VPS and stored in Kubernet
 - `WEBHOOK_SECRET`
 
 Optional values such as Sentry and R2 settings should follow the same model.
+
+For production Redis, set `REDIS_URL` to the VPS-local service, for example:
+
+```text
+redis://:<strong-password>@10.0.0.5:6379/0
+```
+
+Use the VPS private IP or another stable host-local endpoint that every pod can resolve consistently. Do not use request-capped Redis tiers for this bot's queue and hot-state workload.
 
 ### Cloudflare Tunnel Recommendation
 

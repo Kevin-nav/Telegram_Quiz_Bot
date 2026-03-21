@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    runtime = await create_app_state(include_arq=True)
+    runtime = await create_app_state()
     app.state.runtime = runtime
     await startup_web_app(runtime)
 

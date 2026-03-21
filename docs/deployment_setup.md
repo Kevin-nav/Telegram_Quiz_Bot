@@ -19,6 +19,30 @@ The deployment flow is:
 6. The VPS runs database migrations
 7. The VPS rolls out the webhook and worker deployments
 
+## 0. Production Incident And Target Shape
+
+The March 21, 2026 rollout incident exposed an unsafe production dependency chain:
+
+1. `main` was pushed.
+2. Image publishing to GHCR succeeded.
+3. The deploy timer started a rollout.
+4. New webhook and worker pods exhausted or were rejected by the request-metered Redis tier.
+5. Webhook readiness failed and Telegram saw `503`.
+6. Without a failed-digest guard, the timer would retry the same digest again on later ticks.
+
+The target production shape keeps K3s, Cloudflare Tunnel, and pull-based GHCR deployment the same, but replaces hosted metered Redis with a VPS-local Redis-compatible service:
+
+- prefer `valkey-server` on Ubuntu 24.04
+- use `redis-server` if Valkey is not packaged
+- secure it with password auth and persistence
+- reach it from pods through the VPS private IP recorded in `REDIS_URL`
+
+Production defaults stay conservative:
+
+- `1` webhook replica
+- `1` worker replica
+- HPA disabled unless `ENABLE_HPA=true`
+
 ## 1. What Gets Deployed
 
 The repo contains:
@@ -93,9 +117,10 @@ Recommended minimum:
 Your VPS-hosted K3s cluster should have:
 
 - working local `kubectl` access
-- outbound access to GitHub, GHCR, Cloudflare, Telegram, Neon, and Redis
+- outbound access to GitHub, GHCR, Cloudflare, Telegram, and Neon
 - the `adarkwa-study-bot` namespace
 - an application secret created from the VPS
+- network reachability from pods to the VPS-local Redis listener
 
 ### 3.3. Kubernetes Secrets
 
@@ -109,6 +134,14 @@ Create `adarkwa-bot-secret` from the VPS with values such as:
 - optional Sentry and R2 settings
 
 Do not regenerate these secrets from GitHub Actions on every deploy.
+
+For the Redis cutover, the Kubernetes secret should use the VPS-local endpoint directly, for example:
+
+```text
+REDIS_URL=redis://:<strong-password>@10.0.0.5:6379/0
+```
+
+Use the VPS private IP unless you have already set up a different stable host alias for the cluster.
 
 ### 3.4. Image Pull Strategy
 
@@ -183,10 +216,11 @@ Why this is preferred:
 4. Clone the repo into the dedicated deploy directory.
 5. Create the Kubernetes runtime secret from the VPS.
 6. Create the GHCR pull secret if the image package is private.
-7. Install `crane`, the deploy script, and the `systemd` timer.
-8. Leave `ENABLE_HPA=false` unless you have verified Redis and VPS headroom.
-9. Push to `main`.
-10. Confirm the new image is published and deployed.
+7. Install and verify VPS-local `valkey-server` or `redis-server`.
+8. Install `crane`, the deploy script, and the `systemd` timer.
+9. Leave `ENABLE_HPA=false` unless you have verified Redis and VPS headroom.
+10. Push to `main`.
+11. Confirm the new image is published and deployed.
 
 ## 7. Ongoing Deployment Flow
 
@@ -206,7 +240,16 @@ journalctl -u adarkwa-bot-deploy.service -n 100 --no-pager
 kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
 kubectl logs job/<migration-job-name> -n adarkwa-study-bot
+curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
+
+Optional helper:
+
+```bash
+./scripts/production_smoke_check.sh
+```
+
+The helper auto-loads `/etc/adarkwa-study-bot/deploy.env` when present and falls back to the `adarkwa-bot-secret` Kubernetes secret for `TELEGRAM_BOT_TOKEN`, so operators can run it directly on the VPS after the normal deployment setup.
 
 ## 8. Security Notes
 
@@ -227,7 +270,7 @@ This bot currently treats Redis as a critical runtime dependency for:
 - idempotency
 - hot state
 
-Do not use a request-capped/free Redis tier for production if you want reliable auto-deployments and stable bot uptime. When Redis hard-fails, new webhook and worker pods cannot start cleanly, and rollouts will fail.
+Do not use a request-capped or free Redis tier for production if you want reliable auto-deployments and stable bot uptime. Use a VPS-local Redis-compatible service with persistence and password auth.
 
 ## 10. Troubleshooting
 
@@ -239,6 +282,16 @@ Check:
 - `journalctl -u adarkwa-bot-deploy.service`
 - whether the GHCR token is valid
 - whether `/opt/adarkwa-study-bot-deploy/state/last-failed-digest` exists for the current image
+
+Manual recovery commands:
+
+```bash
+sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-digest
+sudo systemctl start adarkwa-bot-deploy.service
+kubectl scale deployment/adarkwa-bot-webhook deployment/adarkwa-bot-worker \
+  --namespace adarkwa-study-bot \
+  --replicas=1
+```
 
 ### The cluster cannot pull the image
 
@@ -263,7 +316,20 @@ Check:
 - `systemctl status cloudflared`
 - the Cloudflare route target
 - the Kubernetes service and webhook pod health
-- whether Redis is rate-limiting or rejecting connections during pod startup
+- whether VPS-local Redis is reachable from the pod and accepting authenticated connections
+
+### Post-deploy Smoke Checks
+
+Run these after any production rollout:
+
+```bash
+crane digest ghcr.io/<github-owner>/adarkwa-study-bot:latest
+cat /opt/adarkwa-study-bot-deploy/state/last-deployed-digest
+kubectl get pods -n adarkwa-study-bot
+kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
+./scripts/production_smoke_check.sh
+curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
+```
 
 ## 11. Recommended Order of Operations
 
@@ -275,5 +341,7 @@ If you want the cleanest production path, do this in order:
 4. create the Kubernetes runtime secret
 5. create the GHCR pull secret
 6. install the local deploy agent
-7. push to `main`
-8. verify rollout
+7. install and verify VPS-local Redis or Valkey
+8. update the `adarkwa-bot-secret` `REDIS_URL`
+9. push to `main`
+10. verify rollout
