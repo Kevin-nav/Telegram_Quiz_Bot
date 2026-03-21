@@ -126,6 +126,11 @@ class QuizSessionService:
 
             selected_option_ids = list(poll_answer.option_ids or [])
             is_correct = question.correct_option_id in selected_option_ids
+            selected_option_text = None
+            if selected_option_ids:
+                selected_index = selected_option_ids[0]
+                if 0 <= selected_index < len(question.options):
+                    selected_option_text = question.options[selected_index]
             if is_correct:
                 session.score += 1
 
@@ -139,10 +144,22 @@ class QuizSessionService:
                         "user_id": session.user_id,
                         "course_id": session.course_id,
                         "question_id": question.question_id,
+                        "source_question_id": question.source_question_id,
                         "question_index": poll_map.question_index,
                         "selected_option_ids": selected_option_ids,
+                        "selected_option_text": selected_option_text,
                         "correct_option_id": question.correct_option_id,
                         "is_correct": is_correct,
+                        "arrangement_hash": question.arrangement_hash,
+                        "config_index": question.config_index,
+                        "time_taken_seconds": None,
+                        "time_allocated_seconds": None,
+                        "metadata": {
+                            "topic_id": question.topic_id,
+                            "has_latex": question.has_latex,
+                            "question_asset_url": question.question_asset_url,
+                            "explanation_asset_url": question.explanation_asset_url,
+                        },
                     }
                 )
             )
@@ -245,6 +262,7 @@ class QuizSessionService:
             quiz_questions.append(
                 QuizQuestion(
                     question_id=question.question_key,
+                    source_question_id=question.id,
                     prompt=question.question_text,
                     options=list(question.options),
                     correct_option_id=question.options.index(question.correct_option_text),

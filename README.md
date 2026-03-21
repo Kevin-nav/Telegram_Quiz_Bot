@@ -83,6 +83,18 @@ Run the migration against the configured database:
 alembic upgrade head
 ```
 
+Import a single scored course question bank:
+
+```bash
+python scripts/import_question_bank.py --course linear-electronics
+```
+
+Import all discovered scored course banks under the shared `q_and_a/` directory:
+
+```bash
+python scripts/import_question_bank.py --all
+```
+
 ## Health Endpoints
 
 - `GET /health`
@@ -102,6 +114,7 @@ alembic upgrade head
 ## Notes
 
 - The adaptive learning engine is intentionally not implemented yet in this foundation phase.
+- Question-bank import workflow documentation lives in [docs/question_bank_import.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/question_bank_import.md).
 - Kubernetes manifests now include separate web, worker, and migration job roles under `k8s/`.
 - Telegram UX design docs live in `docs/plans/2026-03-17-telegram-ux-flow-design.md` and `docs/plans/2026-03-17-telegram-ux-flow.md`.
 

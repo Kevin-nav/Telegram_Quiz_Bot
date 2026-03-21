@@ -9,6 +9,7 @@ class QuizQuestion:
     prompt: str
     options: list[str]
     correct_option_id: int
+    source_question_id: int | None = None
     explanation: str | None = None
     topic_id: str | None = None
     has_latex: bool = False
@@ -21,6 +22,7 @@ class QuizQuestion:
     def from_dict(cls, payload: dict) -> "QuizQuestion":
         return cls(
             question_id=payload["question_id"],
+            source_question_id=payload.get("source_question_id"),
             prompt=payload["prompt"],
             options=list(payload["options"]),
             correct_option_id=payload["correct_option_id"],

@@ -132,6 +132,7 @@ async def test_select_questions_reads_ready_question_bank_before_placeholder():
     repository = FakeQuestionBankRepository(
         ready_questions=[
             FakeQuestionBankQuestion(
+                id=17,
                 question_key="linear-electronics-q1",
                 question_text="An ideal op-amp is characterised by",
                 options=["A", "B", "C", "D"],
@@ -156,6 +157,7 @@ async def test_select_questions_reads_ready_question_bank_before_placeholder():
 
     assert repository.calls == ["linear-electronics"]
     assert questions[0].question_id == "linear-electronics-q1"
+    assert questions[0].source_question_id == 17
     assert questions[0].correct_option_id == 1
     assert questions[0].topic_id == "op_amp_basics"
     assert questions[0].has_latex is False

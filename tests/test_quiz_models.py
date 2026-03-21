@@ -4,6 +4,7 @@ from src.domains.quiz.models import QuizQuestion
 def test_quiz_question_supports_runtime_arrangement_metadata():
     question = QuizQuestion(
         question_id="q1",
+        source_question_id=17,
         prompt="Q",
         options=["A", "B", "C", "D"],
         correct_option_id=0,
@@ -20,6 +21,7 @@ def test_quiz_question_supports_runtime_arrangement_metadata():
     restored = QuizQuestion.from_dict(payload)
 
     assert restored.arrangement_hash == "A-B-C-D"
+    assert restored.source_question_id == 17
     assert restored.config_index == 2
     assert restored.question_asset_url == "https://cdn.example.com/q1.png"
     assert restored.explanation_asset_url == "https://cdn.example.com/q1-explanation.png"
