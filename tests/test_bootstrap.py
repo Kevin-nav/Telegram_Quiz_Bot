@@ -151,6 +151,90 @@ async def test_startup_web_app_recovers_after_subsequent_retry(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_startup_web_app_cleans_up_partial_telegram_startup(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.app.bootstrap import startup_web_app
+
+    class DummyDispatcher:
+        def __init__(self, runtime):
+            self.runtime = runtime
+            self.shutdown_called = False
+
+        async def shutdown(self):
+            self.shutdown_called = True
+
+    class DummyBot:
+        def __init__(self):
+            self.delete_webhook_called = False
+
+        async def delete_webhook(self):
+            self.delete_webhook_called = True
+
+    class DummyTelegramApp:
+        def __init__(self):
+            self.bot = DummyBot()
+            self.bot_data = {}
+            self.initialize_calls = 0
+            self.start_calls = 0
+            self.stop_calls = 0
+            self.shutdown_calls = 0
+
+        async def initialize(self):
+            self.initialize_calls += 1
+
+        async def start(self):
+            self.start_calls += 1
+
+        async def stop(self):
+            self.stop_calls += 1
+
+        async def shutdown(self):
+            self.shutdown_calls += 1
+
+    async def fake_init_arq_pool():
+        return object()
+
+    async def fake_set_bot_commands(_telegram_app):
+        raise RuntimeError("telegram commands failed")
+
+    monkeypatch.setattr("src.app.bootstrap.init_arq_pool", fake_init_arq_pool)
+    monkeypatch.setattr("src.app.bootstrap.set_bot_commands", fake_set_bot_commands)
+    monkeypatch.setattr("src.app.bootstrap.TelegramUpdateDispatcher", DummyDispatcher)
+
+    telegram_app = DummyTelegramApp()
+    state = SimpleNamespace(
+        arq_pool=None,
+        startup_ready=False,
+        startup_error=None,
+        telegram_app=telegram_app,
+        settings=SimpleNamespace(
+            webhook_url="https://example.com",
+            webhook_secret="secret",
+        ),
+        dispatcher=None,
+        telegram_initialized=False,
+        telegram_started=False,
+        webhook_registered=False,
+        last_startup_attempt_at=None,
+        startup_retry_interval_seconds=0,
+    )
+
+    await startup_web_app(state)
+
+    assert state.startup_ready is False
+    assert state.startup_error == "telegram_startup_failed:RuntimeError"
+    assert state.dispatcher is None
+    assert telegram_app.bot_data.get("background_scheduler") is None
+    assert telegram_app.stop_calls == 1
+    assert telegram_app.shutdown_calls == 1
+    assert state.telegram_started is False
+    assert state.telegram_initialized is False
+    assert state.webhook_registered is False
+    assert telegram_app.bot.delete_webhook_called is False
+
+
+@pytest.mark.asyncio
 async def test_startup_web_app_serializes_concurrent_recovery(monkeypatch):
     from types import SimpleNamespace
 
@@ -266,7 +350,10 @@ async def test_shutdown_web_app_does_not_delete_webhook(monkeypatch):
         telegram_app=telegram_app,
         telegram_initialized=True,
         telegram_started=True,
+        webhook_registered=True,
         startup_ready=True,
+        arq_pool=object(),
+        last_startup_attempt_at=123.0,
     )
 
     await shutdown_web_app(state)
@@ -276,6 +363,8 @@ async def test_shutdown_web_app_does_not_delete_webhook(monkeypatch):
     assert telegram_app.shutdown_called is True
     assert close_called is True
     assert telegram_app.bot.delete_webhook_called is False
+    assert state.arq_pool is None
+    assert state.last_startup_attempt_at is None
 
 
 @pytest.mark.asyncio
@@ -296,8 +385,10 @@ async def test_shutdown_web_app_skips_uninitialized_telegram_app(monkeypatch):
         async def shutdown(self):
             self.shutdown_called = True
 
+    close_calls = {"count": 0}
+
     async def fake_close_arq_pool():
-        return None
+        close_calls["count"] += 1
 
     monkeypatch.setattr("src.app.bootstrap.close_arq_pool", fake_close_arq_pool)
 
@@ -307,7 +398,9 @@ async def test_shutdown_web_app_skips_uninitialized_telegram_app(monkeypatch):
         telegram_app=telegram_app,
         telegram_initialized=False,
         telegram_started=False,
+        webhook_registered=False,
         startup_ready=False,
+        arq_pool=object(),
         last_startup_attempt_at=None,
     )
 
@@ -315,3 +408,5 @@ async def test_shutdown_web_app_skips_uninitialized_telegram_app(monkeypatch):
 
     assert telegram_app.stop_called is False
     assert telegram_app.shutdown_called is False
+    assert close_calls["count"] == 1
+    assert state.arq_pool is None

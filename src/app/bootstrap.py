@@ -101,26 +101,59 @@ async def startup_web_app(state: ApplicationState) -> None:
                 )
                 return
 
-        await state.telegram_app.initialize()
-        state.telegram_initialized = True
-        await state.telegram_app.start()
-        state.telegram_started = True
-        await set_bot_commands(state.telegram_app)
-        state.dispatcher = TelegramUpdateDispatcher(state)
-        state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
+        try:
+            await state.telegram_app.initialize()
+            state.telegram_initialized = True
+            await state.telegram_app.start()
+            state.telegram_started = True
+            await set_bot_commands(state.telegram_app)
+            state.dispatcher = TelegramUpdateDispatcher(state)
+            state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
 
-        if state.settings.webhook_url:
-            webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
-            await state.telegram_app.bot.set_webhook(
-                url=webhook_path,
-                secret_token=state.settings.webhook_secret,
-                allowed_updates=["message", "callback_query", "poll_answer"],
-                max_connections=100,
-            )
-            state.webhook_registered = True
+            if state.settings.webhook_url:
+                webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
+                await state.telegram_app.bot.set_webhook(
+                    url=webhook_path,
+                    secret_token=state.settings.webhook_secret,
+                    allowed_updates=["message", "callback_query", "poll_answer"],
+                    max_connections=100,
+                )
+                state.webhook_registered = True
 
-        state.startup_ready = True
-        state.startup_error = None
+            state.startup_ready = True
+            state.startup_error = None
+        except Exception as exc:
+            state.startup_error = f"telegram_startup_failed:{exc.__class__.__name__}"
+            logger.exception("Telegram startup failed; cleaning up partial startup state.")
+
+            if state.webhook_registered:
+                try:
+                    await state.telegram_app.bot.delete_webhook()
+                except Exception:
+                    logger.exception("Failed to remove webhook during startup cleanup.")
+                state.webhook_registered = False
+
+            if state.dispatcher is not None:
+                try:
+                    await state.dispatcher.shutdown()
+                finally:
+                    state.dispatcher = None
+                    state.telegram_app.bot_data.pop("background_scheduler", None)
+
+            if state.telegram_started:
+                try:
+                    await state.telegram_app.stop()
+                finally:
+                    state.telegram_started = False
+
+            if state.telegram_initialized:
+                try:
+                    await state.telegram_app.shutdown()
+                finally:
+                    state.telegram_initialized = False
+
+            state.startup_ready = False
+            return
 
 
 async def shutdown_web_app(state: ApplicationState) -> None:
@@ -135,9 +168,13 @@ async def shutdown_web_app(state: ApplicationState) -> None:
     if state.telegram_initialized:
         await state.telegram_app.shutdown()
         state.telegram_initialized = False
+    state.telegram_started = False
+    state.webhook_registered = False
     state.startup_ready = False
     state.dispatcher = None
     await close_arq_pool()
+    state.arq_pool = None
+    state.last_startup_attempt_at = None
 
 
 async def startup_worker_app(state: ApplicationState) -> None:
