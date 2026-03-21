@@ -41,6 +41,7 @@ At deploy time:
 - `k8s/config.yaml` provides non-secret runtime values
 - the Kubernetes secret already present in the cluster supplies runtime secrets
 - the VPS deploy script renders the deployment and migration job with the exact image digest to deploy
+- production defaults keep one webhook and one worker replica on a single VPS unless you explicitly enable HPA
 
 ## 2. GitHub Setup
 
@@ -164,6 +165,7 @@ Responsibilities:
 - apply the deployment manifest
 - wait for webhook and worker rollout success
 - record the last deployed digest locally
+- stop automatically retrying the same failed digest on every timer tick
 
 Why this is preferred:
 
@@ -171,6 +173,7 @@ Why this is preferred:
 - no public Kubernetes API
 - no cluster credentials in GitHub
 - migration-before-rollout stays explicit and easy to debug
+- a failed rollout does not create endless migration/redeploy loops for the same image
 
 ## 6. First Deployment Checklist
 
@@ -181,8 +184,9 @@ Why this is preferred:
 5. Create the Kubernetes runtime secret from the VPS.
 6. Create the GHCR pull secret if the image package is private.
 7. Install `crane`, the deploy script, and the `systemd` timer.
-8. Push to `main`.
-9. Confirm the new image is published and deployed.
+8. Leave `ENABLE_HPA=false` unless you have verified Redis and VPS headroom.
+9. Push to `main`.
+10. Confirm the new image is published and deployed.
 
 ## 7. Ongoing Deployment Flow
 
@@ -215,7 +219,17 @@ Recommended baseline:
 - GHCR read-only token stored on the VPS only
 - runtime app secrets stored in Kubernetes, created from the VPS
 
-## 9. Troubleshooting
+## 9. Capacity Notes
+
+This bot currently treats Redis as a critical runtime dependency for:
+
+- ARQ job queueing
+- idempotency
+- hot state
+
+Do not use a request-capped/free Redis tier for production if you want reliable auto-deployments and stable bot uptime. When Redis hard-fails, new webhook and worker pods cannot start cleanly, and rollouts will fail.
+
+## 10. Troubleshooting
 
 ### The deploy timer does not update
 
@@ -224,6 +238,7 @@ Check:
 - `systemctl status adarkwa-bot-deploy.timer`
 - `journalctl -u adarkwa-bot-deploy.service`
 - whether the GHCR token is valid
+- whether `/opt/adarkwa-study-bot-deploy/state/last-failed-digest` exists for the current image
 
 ### The cluster cannot pull the image
 
@@ -248,8 +263,9 @@ Check:
 - `systemctl status cloudflared`
 - the Cloudflare route target
 - the Kubernetes service and webhook pod health
+- whether Redis is rate-limiting or rejecting connections during pod startup
 
-## 10. Recommended Order of Operations
+## 11. Recommended Order of Operations
 
 If you want the cleanest production path, do this in order:
 

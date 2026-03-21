@@ -7,8 +7,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: adarkwa-bot-webhook
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 3
   metrics:
   - type: Resource
     resource:
@@ -32,8 +32,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: adarkwa-bot-worker
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 3
   metrics:
   - type: Resource
     resource:

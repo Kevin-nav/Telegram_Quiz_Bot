@@ -6,7 +6,7 @@ metadata:
     app: adarkwa-bot
     component: webhook
 spec:
-  replicas: 2
+  replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
@@ -64,7 +64,7 @@ metadata:
     app: adarkwa-bot
     component: worker
 spec:
-  replicas: 2
+  replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:

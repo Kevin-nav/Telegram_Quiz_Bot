@@ -15,6 +15,7 @@ GHCR_TOKEN_FILE="${GHCR_TOKEN_FILE:-}"
 WEBHOOK_DEPLOYMENT="${WEBHOOK_DEPLOYMENT:-adarkwa-bot-webhook}"
 WORKER_DEPLOYMENT="${WORKER_DEPLOYMENT:-adarkwa-bot-worker}"
 MIGRATION_PREFIX="${MIGRATION_PREFIX:-adarkwa-bot-migrate}"
+ENABLE_HPA="${ENABLE_HPA:-false}"
 
 require_binary() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -52,10 +53,34 @@ target_digest="$(crane digest "${target_image}")"
 immutable_image="${IMAGE_REPO}@${target_digest}"
 
 last_deployed_file="${STATE_DIR}/last-deployed-digest"
+last_failed_file="${STATE_DIR}/last-failed-digest"
 if [[ -f "${last_deployed_file}" ]] && [[ "$(cat "${last_deployed_file}")" == "${target_digest}" ]]; then
+  rm -f "${last_failed_file}"
   echo "already deployed ${immutable_image}"
   exit 0
 fi
+
+current_webhook_image="$(kubectl get deployment "${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+current_worker_image="$(kubectl get deployment "${WORKER_DEPLOYMENT}" --namespace "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+if [[ "${current_webhook_image}" == "${immutable_image}" && "${current_worker_image}" == "${immutable_image}" ]]; then
+  if kubectl rollout status "deployment/${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=5s >/dev/null \
+    && kubectl rollout status "deployment/${WORKER_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=5s >/dev/null; then
+    printf '%s' "${target_digest}" > "${last_deployed_file}"
+    rm -f "${last_failed_file}"
+    echo "deployment already healthy at ${immutable_image}"
+    exit 0
+  fi
+fi
+
+if [[ -f "${last_failed_file}" ]] && [[ "$(cat "${last_failed_file}")" == "${target_digest}" ]]; then
+  echo "skipping automatic retry for previously failed digest ${immutable_image}"
+  echo "delete ${last_failed_file} to retry manually after fixing the underlying issue"
+  exit 0
+fi
+
+mark_failed_digest() {
+  printf '%s' "${target_digest}" > "${last_failed_file}"
+}
 
 deployment_manifest="${RENDER_DIR}/deployment.yaml"
 migration_manifest="${RENDER_DIR}/migration-job.yaml"
@@ -76,8 +101,10 @@ kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/service.yaml"
 if [[ -f "${WORKTREE_DIR}/k8s/ingress.yaml" ]]; then
   kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/ingress.yaml"
 fi
-if [[ -f "${WORKTREE_DIR}/k8s/hpa.yaml" ]]; then
+if [[ -f "${WORKTREE_DIR}/k8s/hpa.yaml" && "${ENABLE_HPA}" == "true" ]]; then
   kubectl apply --namespace "${NAMESPACE}" -f "${WORKTREE_DIR}/k8s/hpa.yaml"
+elif [[ -f "${WORKTREE_DIR}/k8s/hpa.yaml" ]]; then
+  kubectl delete --namespace "${NAMESPACE}" --ignore-not-found -f "${WORKTREE_DIR}/k8s/hpa.yaml"
 fi
 
 kubectl apply --namespace "${NAMESPACE}" -f "${migration_manifest}"
@@ -86,13 +113,21 @@ if ! kubectl wait \
   --for=condition=complete \
   "job/${migration_job_name}" \
   --timeout=300s; then
+  mark_failed_digest
   kubectl logs --namespace "${NAMESPACE}" "job/${migration_job_name}" || true
   exit 1
 fi
 
 kubectl apply --namespace "${NAMESPACE}" -f "${deployment_manifest}"
-kubectl rollout status "deployment/${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=300s
-kubectl rollout status "deployment/${WORKER_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=300s
+if ! kubectl rollout status "deployment/${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=300s; then
+  mark_failed_digest
+  exit 1
+fi
+if ! kubectl rollout status "deployment/${WORKER_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=300s; then
+  mark_failed_digest
+  exit 1
+fi
 
 printf '%s' "${target_digest}" > "${last_deployed_file}"
+rm -f "${last_failed_file}"
 echo "deployed ${immutable_image}"

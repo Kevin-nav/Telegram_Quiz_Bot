@@ -226,6 +226,7 @@ GHCR_TOKEN_FILE=/etc/adarkwa-study-bot/ghcr-token
 WEBHOOK_DEPLOYMENT=adarkwa-bot-webhook
 WORKER_DEPLOYMENT=adarkwa-bot-worker
 MIGRATION_PREFIX=adarkwa-bot-migrate
+ENABLE_HPA=false
 EOF
 ```
 
@@ -325,6 +326,13 @@ Routine maintenance stays small:
 - rotate the GHCR read token if needed
 - update Kubernetes secret values only when app secrets change
 - occasionally update `cloudflared`, K3s, and system packages
+
+Operational defaults in this repo intentionally keep production conservative on one VPS:
+
+- one webhook replica
+- one worker replica
+- HPA disabled unless you explicitly set `ENABLE_HPA=true`
+- failed digests are not retried forever by the timer
 
 You do not need:
 
