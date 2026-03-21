@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from src.core.config import get_settings
 from src.infra.r2.client import create_r2_client
 
@@ -17,6 +19,7 @@ class R2Storage:
         settings = get_settings()
         self.client = client or create_r2_client()
         self.bucket_name = bucket_name or settings.r2_bucket_name
+        self.public_base_url = settings.r2_public_base_url
 
     def validate_upload(self, content_type: str, size_bytes: int) -> None:
         if content_type not in ALLOWED_CONTENT_TYPES:
@@ -49,3 +52,8 @@ class R2Storage:
             Params={"Bucket": self.bucket_name, "Key": key},
             ExpiresIn=expires_in,
         )
+
+    def build_public_url(self, key: str) -> str:
+        if not self.public_base_url:
+            raise ValueError("R2 public base URL is not configured.")
+        return f"{self.public_base_url.rstrip('/')}/{key.lstrip('/')}"

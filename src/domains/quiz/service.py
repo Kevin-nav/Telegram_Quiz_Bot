@@ -6,6 +6,7 @@ from uuid import uuid4
 from telegram import PollAnswer
 
 from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
+from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
 from src.infra.redis.state_store import InteractiveStateStore
 from src.tasks.arq_client import (
     enqueue_generate_quiz_session,
@@ -18,8 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 class QuizSessionService:
-    def __init__(self, state_store: InteractiveStateStore | None = None):
+    def __init__(
+        self,
+        state_store: InteractiveStateStore | None = None,
+        question_bank_repository: QuestionBankRepository | None = None,
+    ):
         self.state_store = state_store
+        self.question_bank_repository = question_bank_repository or QuestionBankRepository()
 
     def set_state_store(self, state_store: InteractiveStateStore) -> None:
         self.state_store = state_store
@@ -120,6 +126,11 @@ class QuizSessionService:
 
             selected_option_ids = list(poll_answer.option_ids or [])
             is_correct = question.correct_option_id in selected_option_ids
+            selected_option_text = None
+            if selected_option_ids:
+                selected_index = selected_option_ids[0]
+                if 0 <= selected_index < len(question.options):
+                    selected_option_text = question.options[selected_index]
             if is_correct:
                 session.score += 1
 
@@ -133,10 +144,22 @@ class QuizSessionService:
                         "user_id": session.user_id,
                         "course_id": session.course_id,
                         "question_id": question.question_id,
+                        "source_question_id": question.source_question_id,
                         "question_index": poll_map.question_index,
                         "selected_option_ids": selected_option_ids,
+                        "selected_option_text": selected_option_text,
                         "correct_option_id": question.correct_option_id,
                         "is_correct": is_correct,
+                        "arrangement_hash": question.arrangement_hash,
+                        "config_index": question.config_index,
+                        "time_taken_seconds": None,
+                        "time_allocated_seconds": None,
+                        "metadata": {
+                            "topic_id": question.topic_id,
+                            "has_latex": question.has_latex,
+                            "question_asset_url": question.question_asset_url,
+                            "explanation_asset_url": question.explanation_asset_url,
+                        },
                     }
                 )
             )
@@ -214,9 +237,52 @@ class QuizSessionService:
     ) -> list[QuizQuestion]:
         cached_questions = await self.state_store.get_question_bank(course_id)
         if cached_questions is None or len(cached_questions) < question_count:
-            cached_questions = self._build_placeholder_questions(course_name, max(question_count, 30))
-            await self.state_store.cache_question_bank(course_id, cached_questions)
+            cached_questions = await self._load_ready_questions(course_id)
+            if cached_questions:
+                await self.state_store.cache_question_bank(course_id, cached_questions)
+            else:
+                cached_questions = self._build_placeholder_questions(
+                    course_name, max(question_count, 30)
+                )
+                await self.state_store.cache_question_bank(course_id, cached_questions)
         return cached_questions[:question_count]
+
+    async def _load_ready_questions(self, course_id: str) -> list[QuizQuestion]:
+        try:
+            ready_questions = await self.question_bank_repository.list_ready_questions(
+                course_id
+            )
+        except Exception:
+            logger.exception(
+                "Failed to load ready questions for course_id=%s; falling back to placeholders.",
+                course_id,
+            )
+            return []
+        quiz_questions: list[QuizQuestion] = []
+
+        for question in ready_questions:
+            if question.correct_option_text not in question.options:
+                logger.warning(
+                    "Skipping question %s because correct_option_text is not in options.",
+                    question.question_key,
+                )
+                continue
+
+            quiz_questions.append(
+                QuizQuestion(
+                    question_id=question.question_key,
+                    source_question_id=question.id,
+                    prompt=question.question_text,
+                    options=list(question.options),
+                    correct_option_id=question.options.index(question.correct_option_text),
+                    explanation=question.short_explanation,
+                    topic_id=question.topic_id,
+                    has_latex=question.has_latex,
+                    explanation_asset_url=question.explanation_asset_url,
+                )
+            )
+
+        return quiz_questions
 
     def _build_placeholder_questions(
         self, course_name: str, question_count: int
