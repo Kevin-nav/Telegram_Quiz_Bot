@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from src.infra.redis.state_store import InteractiveStateStore
 from src.tasks.arq_client import close_arq_pool, init_arq_pool
 
 logger = logging.getLogger(__name__)
+_startup_lock = asyncio.Lock()
 
 
 @dataclass
@@ -70,54 +72,55 @@ def configure_application_services(state: ApplicationState) -> None:
 
 
 async def startup_web_app(state: ApplicationState) -> None:
-    if getattr(state, "startup_ready", False):
-        return
-    last_startup_attempt_at = getattr(state, "last_startup_attempt_at", None)
-    startup_retry_interval_seconds = getattr(
-        state,
-        "startup_retry_interval_seconds",
-        30.0,
-    )
-    if (
-        last_startup_attempt_at is not None
-        and time.monotonic() - last_startup_attempt_at
-        < startup_retry_interval_seconds
-    ):
-        return
-
-    state.last_startup_attempt_at = time.monotonic()
-    logger.info("Starting up Adarkwa Study Bot web application.")
-
-    if state.arq_pool is None:
-        try:
-            state.arq_pool = await init_arq_pool()
-        except Exception as exc:
-            state.startup_error = f"redis_unavailable:{exc.__class__.__name__}"
-            logger.exception(
-                "Starting in degraded mode because Redis/ARQ initialization failed."
-            )
+    async with _startup_lock:
+        if getattr(state, "startup_ready", False):
+            return
+        last_startup_attempt_at = getattr(state, "last_startup_attempt_at", None)
+        startup_retry_interval_seconds = getattr(
+            state,
+            "startup_retry_interval_seconds",
+            30.0,
+        )
+        if (
+            last_startup_attempt_at is not None
+            and time.monotonic() - last_startup_attempt_at
+            < startup_retry_interval_seconds
+        ):
             return
 
-    await state.telegram_app.initialize()
-    state.telegram_initialized = True
-    await state.telegram_app.start()
-    state.telegram_started = True
-    await set_bot_commands(state.telegram_app)
-    state.dispatcher = TelegramUpdateDispatcher(state)
-    state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
+        state.last_startup_attempt_at = time.monotonic()
+        logger.info("Starting up Adarkwa Study Bot web application.")
 
-    if state.settings.webhook_url:
-        webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
-        await state.telegram_app.bot.set_webhook(
-            url=webhook_path,
-            secret_token=state.settings.webhook_secret,
-            allowed_updates=["message", "callback_query", "poll_answer"],
-            max_connections=100,
-        )
-        state.webhook_registered = True
+        if state.arq_pool is None:
+            try:
+                state.arq_pool = await init_arq_pool()
+            except Exception as exc:
+                state.startup_error = f"redis_unavailable:{exc.__class__.__name__}"
+                logger.exception(
+                    "Starting in degraded mode because Redis/ARQ initialization failed."
+                )
+                return
 
-    state.startup_ready = True
-    state.startup_error = None
+        await state.telegram_app.initialize()
+        state.telegram_initialized = True
+        await state.telegram_app.start()
+        state.telegram_started = True
+        await set_bot_commands(state.telegram_app)
+        state.dispatcher = TelegramUpdateDispatcher(state)
+        state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
+
+        if state.settings.webhook_url:
+            webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
+            await state.telegram_app.bot.set_webhook(
+                url=webhook_path,
+                secret_token=state.settings.webhook_secret,
+                allowed_updates=["message", "callback_query", "poll_answer"],
+                max_connections=100,
+            )
+            state.webhook_registered = True
+
+        state.startup_ready = True
+        state.startup_error = None
 
 
 async def shutdown_web_app(state: ApplicationState) -> None:

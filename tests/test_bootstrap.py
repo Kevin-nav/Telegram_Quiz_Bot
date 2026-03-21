@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 
 
 @pytest.mark.asyncio
@@ -147,6 +148,74 @@ async def test_startup_web_app_recovers_after_subsequent_retry(monkeypatch):
     assert telegram_app.start_calls == 1
     assert len(telegram_app.bot.set_webhook_calls) == 1
     assert state.dispatcher is not None
+
+
+@pytest.mark.asyncio
+async def test_startup_web_app_serializes_concurrent_recovery(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.app.bootstrap import startup_web_app
+
+    class DummyBot:
+        async def set_webhook(self, **kwargs):
+            return None
+
+    class DummyTelegramApp:
+        def __init__(self):
+            self.bot = DummyBot()
+            self.bot_data = {}
+            self.initialize_calls = 0
+            self.start_calls = 0
+
+        async def initialize(self):
+            self.initialize_calls += 1
+
+        async def start(self):
+            self.start_calls += 1
+
+    arq_attempts = {"count": 0}
+    release_pool = asyncio.Event()
+
+    async def fake_init_arq_pool():
+        arq_attempts["count"] += 1
+        await release_pool.wait()
+        return object()
+
+    async def fake_set_bot_commands(_telegram_app):
+        return None
+
+    monkeypatch.setattr("src.app.bootstrap.init_arq_pool", fake_init_arq_pool)
+    monkeypatch.setattr("src.app.bootstrap.set_bot_commands", fake_set_bot_commands)
+
+    telegram_app = DummyTelegramApp()
+    state = SimpleNamespace(
+        arq_pool=None,
+        startup_ready=False,
+        startup_error=None,
+        telegram_app=telegram_app,
+        settings=SimpleNamespace(
+            webhook_url="https://example.com",
+            webhook_secret="secret",
+        ),
+        dispatcher=None,
+        telegram_initialized=False,
+        telegram_started=False,
+        webhook_registered=False,
+        last_startup_attempt_at=None,
+        startup_retry_interval_seconds=0,
+    )
+
+    task_one = asyncio.create_task(startup_web_app(state))
+    await asyncio.sleep(0)
+    task_two = asyncio.create_task(startup_web_app(state))
+    await asyncio.sleep(0)
+    release_pool.set()
+    await asyncio.gather(task_one, task_two)
+
+    assert arq_attempts["count"] == 1
+    assert telegram_app.initialize_calls == 1
+    assert telegram_app.start_calls == 1
+    assert state.startup_ready is True
 
 
 @pytest.mark.asyncio

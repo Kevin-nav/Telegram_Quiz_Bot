@@ -38,7 +38,9 @@ cat "${STATE_DIR}/last-deployed-digest"
 echo
 
 echo "Telegram webhook info"
-curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+curl -fsS --config - <<EOF
+url = "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+EOF
 echo
 echo
 
