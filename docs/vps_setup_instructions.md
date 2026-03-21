@@ -469,6 +469,8 @@ For a compact post-deploy checklist, you can also run:
 /opt/adarkwa-study-bot-deploy/repo/scripts/production_smoke_check.sh
 ```
 
+The script loads `/etc/adarkwa-study-bot/deploy.env` automatically when available and reads `TELEGRAM_BOT_TOKEN` from the `adarkwa-bot-secret` Kubernetes secret if you have not exported it in the shell.
+
 You do not need:
 
 - a self-hosted GitHub runner

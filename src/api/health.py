@@ -1,3 +1,4 @@
+from src.app.bootstrap import startup_web_app
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Request, status
@@ -55,6 +56,8 @@ async def health_live():
 @router.get("/health/ready")
 async def health_ready(request: Request):
     runtime = get_runtime(request)
+    if not getattr(runtime, "startup_ready", True):
+        await startup_web_app(runtime)
     checks = await check_readiness(runtime)
     is_ready = all(value == "ok" for value in checks.values())
     payload = {

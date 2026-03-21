@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DEPLOY_ENV_FILE="${DEPLOY_ENV_FILE:-/etc/adarkwa-study-bot/deploy.env}"
+
+if [[ -f "${DEPLOY_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${DEPLOY_ENV_FILE}"
+  set +a
+fi
+
 NAMESPACE="${NAMESPACE:-adarkwa-study-bot}"
 IMAGE_REPO="${IMAGE_REPO:-ghcr.io/<github-owner>/adarkwa-study-bot}"
 STATE_DIR="${STATE_DIR:-/opt/adarkwa-study-bot-deploy/state}"
@@ -8,7 +17,15 @@ WEBHOOK_DEPLOYMENT="${WEBHOOK_DEPLOYMENT:-adarkwa-bot-webhook}"
 WORKER_DEPLOYMENT="${WORKER_DEPLOYMENT:-adarkwa-bot-worker}"
 
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-  echo "TELEGRAM_BOT_TOKEN must be set for getWebhookInfo checks." >&2
+  TELEGRAM_BOT_TOKEN="$(
+    kubectl get secret adarkwa-bot-secret \
+      -n "${NAMESPACE}" \
+      -o jsonpath='{.data.TELEGRAM_BOT_TOKEN}' | base64 -d
+  )"
+fi
+
+if [[ -z "${IMAGE_REPO}" || "${IMAGE_REPO}" == "ghcr.io/<github-owner>/adarkwa-study-bot" ]]; then
+  echo "IMAGE_REPO is not configured. Set it in ${DEPLOY_ENV_FILE} or export IMAGE_REPO." >&2
   exit 1
 fi
 

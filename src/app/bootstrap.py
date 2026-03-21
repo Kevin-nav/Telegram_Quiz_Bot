@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,6 +34,8 @@ class ApplicationState:
     telegram_initialized: bool = False
     telegram_started: bool = False
     webhook_registered: bool = False
+    last_startup_attempt_at: float | None = None
+    startup_retry_interval_seconds: float = 30.0
 
 
 async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
@@ -67,6 +70,22 @@ def configure_application_services(state: ApplicationState) -> None:
 
 
 async def startup_web_app(state: ApplicationState) -> None:
+    if getattr(state, "startup_ready", False):
+        return
+    last_startup_attempt_at = getattr(state, "last_startup_attempt_at", None)
+    startup_retry_interval_seconds = getattr(
+        state,
+        "startup_retry_interval_seconds",
+        30.0,
+    )
+    if (
+        last_startup_attempt_at is not None
+        and time.monotonic() - last_startup_attempt_at
+        < startup_retry_interval_seconds
+    ):
+        return
+
+    state.last_startup_attempt_at = time.monotonic()
     logger.info("Starting up Adarkwa Study Bot web application.")
 
     if state.arq_pool is None:
@@ -114,6 +133,7 @@ async def shutdown_web_app(state: ApplicationState) -> None:
         await state.telegram_app.shutdown()
         state.telegram_initialized = False
     state.startup_ready = False
+    state.dispatcher = None
     await close_arq_pool()
 
 

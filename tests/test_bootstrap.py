@@ -64,6 +64,8 @@ async def test_startup_web_app_marks_runtime_degraded_when_arq_init_fails(monkey
         telegram_initialized=False,
         telegram_started=False,
         webhook_registered=False,
+        last_startup_attempt_at=None,
+        startup_retry_interval_seconds=0,
     )
 
     await startup_web_app(state)
@@ -74,6 +76,77 @@ async def test_startup_web_app_marks_runtime_degraded_when_arq_init_fails(monkey
     assert telegram_app.start_called is False
     assert telegram_app.bot.set_webhook_called is False
     assert state.dispatcher is None
+
+
+@pytest.mark.asyncio
+async def test_startup_web_app_recovers_after_subsequent_retry(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.app.bootstrap import startup_web_app
+
+    class DummyBot:
+        def __init__(self):
+            self.set_webhook_calls = []
+
+        async def set_webhook(self, **kwargs):
+            self.set_webhook_calls.append(kwargs)
+
+    class DummyTelegramApp:
+        def __init__(self):
+            self.bot = DummyBot()
+            self.bot_data = {}
+            self.initialize_calls = 0
+            self.start_calls = 0
+
+        async def initialize(self):
+            self.initialize_calls += 1
+
+        async def start(self):
+            self.start_calls += 1
+
+    arq_attempts = {"count": 0}
+
+    async def fake_init_arq_pool():
+        arq_attempts["count"] += 1
+        if arq_attempts["count"] == 1:
+            raise RuntimeError("redis offline")
+        return object()
+
+    async def fake_set_bot_commands(_telegram_app):
+        return None
+
+    monkeypatch.setattr("src.app.bootstrap.init_arq_pool", fake_init_arq_pool)
+    monkeypatch.setattr("src.app.bootstrap.set_bot_commands", fake_set_bot_commands)
+
+    telegram_app = DummyTelegramApp()
+    state = SimpleNamespace(
+        arq_pool=None,
+        startup_ready=False,
+        startup_error=None,
+        telegram_app=telegram_app,
+        settings=SimpleNamespace(
+            webhook_url="https://example.com",
+            webhook_secret="secret",
+        ),
+        dispatcher=None,
+        telegram_initialized=False,
+        telegram_started=False,
+        webhook_registered=False,
+        last_startup_attempt_at=None,
+        startup_retry_interval_seconds=0,
+    )
+
+    await startup_web_app(state)
+    assert state.startup_ready is False
+
+    await startup_web_app(state)
+
+    assert state.startup_ready is True
+    assert state.startup_error is None
+    assert telegram_app.initialize_calls == 1
+    assert telegram_app.start_calls == 1
+    assert len(telegram_app.bot.set_webhook_calls) == 1
+    assert state.dispatcher is not None
 
 
 @pytest.mark.asyncio
@@ -166,6 +239,7 @@ async def test_shutdown_web_app_skips_uninitialized_telegram_app(monkeypatch):
         telegram_initialized=False,
         telegram_started=False,
         startup_ready=False,
+        last_startup_attempt_at=None,
     )
 
     await shutdown_web_app(state)

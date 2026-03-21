@@ -150,33 +150,46 @@ async def test_ready_endpoint_returns_503_when_dependency_down(async_client, mon
 async def test_ready_endpoint_reports_degraded_startup(async_client, monkeypatch):
     import src.api.health
 
+    runtime = SimpleNamespace(
+        startup_ready=False,
+        startup_error="redis_unavailable:RuntimeError",
+        redis=FakeRedis(),
+        db_engine=SimpleNamespace(),
+    )
+
     monkeypatch.setattr(
         src.api.health,
         "get_runtime",
-        lambda request: SimpleNamespace(
-            startup_ready=False,
-            startup_error="redis_unavailable:RuntimeError",
-            redis=FakeRedis(),
-            db_engine=SimpleNamespace(),
-        ),
+        lambda request: runtime,
     )
 
     async def mock_check_readiness(runtime):
+        if runtime.startup_ready:
+            return {"startup": "ok", "redis": "ok", "database": "ok"}
         return {"startup": "degraded", "redis": "error", "database": "ok"}
 
     monkeypatch.setattr(src.api.health, "check_readiness", mock_check_readiness)
+    monkeypatch.setattr(
+        src.api.health,
+        "startup_web_app",
+        lambda runtime: _mark_runtime_ready(runtime),
+    )
 
     response = await async_client.get("/health/ready")
 
-    assert response.status_code == 503
-    assert response.json()["checks"]["startup"] == "degraded"
-    assert response.json()["detail"] == "redis_unavailable:RuntimeError"
+    assert response.status_code == 200
+    assert response.json()["checks"]["startup"] == "ok"
+    assert response.json()["detail"] is None
 
 
 @pytest.mark.asyncio
 async def test_webhook_returns_503_when_runtime_is_degraded(async_client, monkeypatch):
     import src.api.webhooks
 
+    async def fake_startup_web_app(runtime):
+        return None
+
+    monkeypatch.setattr(src.api.webhooks, "startup_web_app", fake_startup_web_app)
     monkeypatch.setattr(
         src.api.webhooks,
         "get_runtime",
@@ -197,3 +210,44 @@ async def test_webhook_returns_503_when_runtime_is_degraded(async_client, monkey
     )
 
     assert response.status_code == 503
+
+
+async def _mark_runtime_ready(runtime):
+    runtime.startup_ready = True
+    runtime.startup_error = None
+
+
+@pytest.mark.asyncio
+async def test_webhook_recovers_runtime_before_accepting_request(async_client, monkeypatch):
+    import src.api.webhooks
+
+    dispatched_payloads = []
+
+    class FakeDispatcher:
+        async def dispatch(self, payload):
+            dispatched_payloads.append(payload)
+            return "inline"
+
+    runtime = SimpleNamespace(
+        startup_ready=False,
+        startup_error="redis_unavailable:RuntimeError",
+        dispatcher=None,
+        telegram_app=SimpleNamespace(bot_data={}),
+        redis=FakeRedis(),
+    )
+
+    monkeypatch.setattr(src.api.webhooks, "get_runtime", lambda request: runtime)
+
+    async def fake_startup_web_app(current_runtime):
+        current_runtime.startup_ready = True
+        current_runtime.startup_error = None
+        current_runtime.dispatcher = FakeDispatcher()
+
+    monkeypatch.setattr(src.api.webhooks, "startup_web_app", fake_startup_web_app)
+
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+    payload = {"update_id": 999, "message": {"text": "/start"}}
+    response = await async_client.post("/webhook", json=payload, headers=headers)
+
+    assert response.status_code == 200
+    assert dispatched_payloads == [payload]

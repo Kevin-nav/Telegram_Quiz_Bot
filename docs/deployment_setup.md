@@ -249,6 +249,8 @@ Optional helper:
 ./scripts/production_smoke_check.sh
 ```
 
+The helper auto-loads `/etc/adarkwa-study-bot/deploy.env` when present and falls back to the `adarkwa-bot-secret` Kubernetes secret for `TELEGRAM_BOT_TOKEN`, so operators can run it directly on the VPS after the normal deployment setup.
+
 ## 8. Security Notes
 
 Recommended baseline:
@@ -325,7 +327,7 @@ crane digest ghcr.io/<github-owner>/adarkwa-study-bot:latest
 cat /opt/adarkwa-study-bot-deploy/state/last-deployed-digest
 kubectl get pods -n adarkwa-study-bot
 kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
-kubectl exec -n adarkwa-study-bot deployment/adarkwa-bot-webhook -- printenv REDIS_URL
+./scripts/production_smoke_check.sh
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
