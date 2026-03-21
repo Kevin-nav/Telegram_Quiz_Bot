@@ -10,6 +10,12 @@ class QuizQuestion:
     options: list[str]
     correct_option_id: int
     explanation: str | None = None
+    topic_id: str | None = None
+    has_latex: bool = False
+    arrangement_hash: str | None = None
+    config_index: int | None = None
+    question_asset_url: str | None = None
+    explanation_asset_url: str | None = None
 
     @classmethod
     def from_dict(cls, payload: dict) -> "QuizQuestion":
@@ -19,6 +25,12 @@ class QuizQuestion:
             options=list(payload["options"]),
             correct_option_id=payload["correct_option_id"],
             explanation=payload.get("explanation"),
+            topic_id=payload.get("topic_id"),
+            has_latex=payload.get("has_latex", False),
+            arrangement_hash=payload.get("arrangement_hash"),
+            config_index=payload.get("config_index"),
+            question_asset_url=payload.get("question_asset_url"),
+            explanation_asset_url=payload.get("explanation_asset_url"),
         )
 
     def to_dict(self) -> dict:
