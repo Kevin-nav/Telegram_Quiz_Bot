@@ -21,11 +21,16 @@ def get_runtime(request: Request):
         settings=get_settings(),
         redis=redis_client,
         db_engine=engine,
+        startup_ready=True,
+        startup_error=None,
     )
 
 
 async def check_readiness(runtime) -> dict[str, str]:
-    status_map = {"redis": "ok", "database": "ok"}
+    status_map = {"startup": "ok", "redis": "ok", "database": "ok"}
+
+    if not getattr(runtime, "startup_ready", True):
+        status_map["startup"] = "degraded"
 
     try:
         await runtime.redis.ping()
@@ -52,6 +57,10 @@ async def health_ready(request: Request):
     runtime = get_runtime(request)
     checks = await check_readiness(runtime)
     is_ready = all(value == "ok" for value in checks.values())
-    payload = {"status": "ok" if is_ready else "degraded", "checks": checks}
+    payload = {
+        "status": "ok" if is_ready else "degraded",
+        "checks": checks,
+        "detail": getattr(runtime, "startup_error", None),
+    }
     response_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=response_code, content=payload)

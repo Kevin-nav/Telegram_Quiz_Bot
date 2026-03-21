@@ -6,6 +6,7 @@ metadata:
     app: adarkwa-bot
     component: webhook
 spec:
+  # Keep rollout defaults conservative until VPS-local Redis capacity is measured.
   replicas: 1
   revisionHistoryLimit: 3
   selector:
@@ -64,6 +65,7 @@ metadata:
     app: adarkwa-bot
     component: worker
 spec:
+  # Keep rollout defaults conservative until VPS-local Redis capacity is measured.
   replicas: 1
   revisionHistoryLimit: 3
   selector:

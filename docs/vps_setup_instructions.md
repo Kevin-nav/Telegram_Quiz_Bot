@@ -13,6 +13,8 @@ This setup is intentionally pull-based:
 - the VPS deploys it locally
 - GitHub never needs your Kubernetes kubeconfig
 
+The March 21, 2026 production incident showed that request-metered hosted Redis is not a safe fit for this bot. Production should run Redis locally on the VPS and let pods connect to it over the VPS private IP.
+
 ## 1. Harden the VPS First
 
 SSH into the VPS and run:
@@ -108,7 +110,75 @@ Set the bot webhook base URL to your Cloudflare hostname, for example:
 https://tg-bot-tanjah.sankoslides.com
 ```
 
-## 4. Prepare a Dedicated Deploy Checkout
+## 4. Install Local Redis Or Valkey
+
+Prefer `valkey-server` on Ubuntu 24.04 when the package is available. If it is not available in your configured apt sources, install `redis-server` instead.
+
+Install the package:
+
+```bash
+if apt-cache show valkey-server >/dev/null 2>&1; then
+  sudo apt install -y valkey-server
+  REDIS_SERVICE=valkey-server
+  REDIS_CONF=/etc/valkey/valkey.conf
+  REDIS_DATA_DIR=/var/lib/valkey
+else
+  sudo apt install -y redis-server
+  REDIS_SERVICE=redis-server
+  REDIS_CONF=/etc/redis/redis.conf
+  REDIS_DATA_DIR=/var/lib/redis
+fi
+```
+
+Bind the service so the VPS itself and K3s pods can reach it through the VPS private IP. Replace `10.0.0.5` with your actual private address:
+
+```bash
+sudo sed -i 's/^bind .*/bind 127.0.0.1 10.0.0.5/' "${REDIS_CONF}"
+sudo sed -i 's/^protected-mode .*/protected-mode yes/' "${REDIS_CONF}"
+sudo sed -i 's/^# requirepass .*/requirepass <STRONG_REDIS_PASSWORD>/' "${REDIS_CONF}"
+```
+
+Enable append-only persistence:
+
+```bash
+sudo sed -i 's/^appendonly .*/appendonly yes/' "${REDIS_CONF}"
+sudo sed -i 's/^appendfsync .*/appendfsync everysec/' "${REDIS_CONF}"
+sudo systemctl enable "${REDIS_SERVICE}"
+sudo systemctl restart "${REDIS_SERVICE}"
+sudo systemctl status "${REDIS_SERVICE}"
+```
+
+Verify locally on the VPS:
+
+```bash
+redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' ping
+redis-cli -h 10.0.0.5 -a '<STRONG_REDIS_PASSWORD>' info memory
+```
+
+Operational commands:
+
+```bash
+sudo systemctl restart "${REDIS_SERVICE}"
+sudo systemctl status "${REDIS_SERVICE}"
+redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info memory
+redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info persistence
+sudo ls -lh "${REDIS_DATA_DIR}"
+```
+
+Alert conditions that matter:
+
+- Redis stops accepting authenticated connections
+- memory use approaches the VPS limit
+- AOF or RDB persistence stops updating
+- webhook readiness degrades because Redis ping fails
+
+Back up persistence files before risky maintenance:
+
+```bash
+sudo tar -czf "/var/backups/adarkwa-redis-$(date +%F-%H%M%S).tar.gz" "${REDIS_DATA_DIR}"
+```
+
+## 5. Prepare a Dedicated Deploy Checkout
 
 Create a dedicated deployment workspace:
 
@@ -121,7 +191,7 @@ git clone --branch main --single-branch https://github.com/Kevin-nav/Telegram_Qu
 
 This checkout is only for deployment automation. Do not use your personal development checkout for the timer-driven deploy process.
 
-## 5. Create Kubernetes Runtime Secrets from the VPS
+## 6. Create Kubernetes Runtime Secrets from the VPS
 
 Create the namespace first:
 
@@ -136,7 +206,7 @@ kubectl create secret generic adarkwa-bot-secret \
   --namespace adarkwa-study-bot \
   --from-literal=TELEGRAM_BOT_TOKEN='<YOUR_TELEGRAM_BOT_TOKEN>' \
   --from-literal=DATABASE_URL='<YOUR_DATABASE_URL>' \
-  --from-literal=REDIS_URL='<YOUR_REDIS_URL>' \
+  --from-literal=REDIS_URL='redis://:<STRONG_REDIS_PASSWORD>@10.0.0.5:6379/0' \
   --from-literal=WEBHOOK_URL='https://tg-bot-tanjah.sankoslides.com' \
   --from-literal=WEBHOOK_SECRET='<YOUR_WEBHOOK_SECRET>' \
   --from-literal=SENTRY_DSN='' \
@@ -151,7 +221,9 @@ kubectl create secret generic adarkwa-bot-secret \
 
 You only need to rerun this when secret values change.
 
-## 6. Prepare GHCR Pull Access
+Use the VPS private IP directly in `REDIS_URL` unless you have already created a stable host alias that every pod resolves the same way.
+
+## 7. Prepare GHCR Pull Access
 
 Recommended:
 
@@ -186,7 +258,7 @@ kubectl patch serviceaccount default \
 
 If you later make the GHCR package public, this pull secret becomes optional.
 
-## 7. Install the Local Deploy Agent
+## 8. Install the Local Deploy Agent
 
 The deploy agent polls GHCR for the digest behind `:latest`, then deploys locally with `kubectl`.
 
@@ -245,7 +317,43 @@ kubectl apply -f /opt/adarkwa-study-bot-deploy/repo/k8s/ingress.yaml
 kubectl get ingress -n adarkwa-study-bot
 ```
 
-## 8. Update GitHub Actions Secrets
+## 9. Cut Over To The VPS-local Redis Endpoint
+
+Use this exact order:
+
+1. Install `valkey-server` or `redis-server`.
+2. Verify the service is healthy on the VPS with `redis-cli`.
+3. Update the Kubernetes secret so `REDIS_URL` points at the VPS private IP.
+4. Restart the deployment service.
+5. Verify webhook and worker readiness.
+6. Confirm Telegram still reports the correct webhook URL.
+
+Example cutover commands:
+
+```bash
+kubectl create secret generic adarkwa-bot-secret \
+  --namespace adarkwa-study-bot \
+  --from-literal=TELEGRAM_BOT_TOKEN='<YOUR_TELEGRAM_BOT_TOKEN>' \
+  --from-literal=DATABASE_URL='<YOUR_DATABASE_URL>' \
+  --from-literal=REDIS_URL='redis://:<STRONG_REDIS_PASSWORD>@10.0.0.5:6379/0' \
+  --from-literal=WEBHOOK_URL='https://tg-bot-tanjah.sankoslides.com' \
+  --from-literal=WEBHOOK_SECRET='<YOUR_WEBHOOK_SECRET>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+sudo systemctl start adarkwa-bot-deploy.service
+kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
+```
+
+If the rollout has already marked the digest as failed, clear the guard and rerun:
+
+```bash
+sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-digest
+sudo systemctl start adarkwa-bot-deploy.service
+```
+
+## 10. Update GitHub Actions Secrets
 
 You no longer need `KUBE_CONFIG_B64` for production deployments.
 
@@ -261,7 +369,7 @@ Do not store these runtime app secrets in GitHub just for deployment:
 
 Keep them on the VPS and in Kubernetes instead.
 
-## 9. Trigger the First Deployment
+## 11. Trigger the First Deployment
 
 Push a change to `main`.
 
@@ -281,7 +389,7 @@ If you want to trigger immediately:
 sudo systemctl start adarkwa-bot-deploy.service
 ```
 
-## 10. Verify Everything
+## 12. Verify Everything
 
 Check the tunnel:
 
@@ -305,15 +413,36 @@ kubectl get jobs -n adarkwa-study-bot
 kubectl get svc -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
 ```
 
 Check the public webhook URL:
 
 ```bash
 curl -I https://tg-bot-tanjah.sankoslides.com/health
+curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
-## 11. Ongoing Maintenance
+Verify pod-to-Redis connectivity from inside Kubernetes:
+
+```bash
+kubectl exec -n adarkwa-study-bot deployment/adarkwa-bot-webhook -- python - <<'PY'
+import asyncio
+import os
+import redis.asyncio as redis
+
+async def main():
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    try:
+        print(await client.ping())
+    finally:
+        await client.aclose()
+
+asyncio.run(main())
+PY
+```
+
+## 13. Ongoing Maintenance
 
 Normal deploy flow:
 
@@ -333,6 +462,12 @@ Operational defaults in this repo intentionally keep production conservative on 
 - one worker replica
 - HPA disabled unless you explicitly set `ENABLE_HPA=true`
 - failed digests are not retried forever by the timer
+
+For a compact post-deploy checklist, you can also run:
+
+```bash
+/opt/adarkwa-study-bot-deploy/repo/scripts/production_smoke_check.sh
+```
 
 You do not need:
 

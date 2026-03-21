@@ -3,6 +3,8 @@ kind: ConfigMap
 metadata:
   name: adarkwa-bot-config
 data:
+  # REDIS_URL stays in the Kubernetes secret and should point at the VPS-local
+  # Valkey or Redis listener, typically via the VPS private IP.
   APP_ENV: "production"
   PORT: "8000"
   ARQ_QUEUE_NAME: "adarkwa-bot-background-v2"

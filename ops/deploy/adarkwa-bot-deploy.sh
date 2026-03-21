@@ -16,6 +16,8 @@ WEBHOOK_DEPLOYMENT="${WEBHOOK_DEPLOYMENT:-adarkwa-bot-webhook}"
 WORKER_DEPLOYMENT="${WORKER_DEPLOYMENT:-adarkwa-bot-worker}"
 MIGRATION_PREFIX="${MIGRATION_PREFIX:-adarkwa-bot-migrate}"
 ENABLE_HPA="${ENABLE_HPA:-false}"
+DEFAULT_WEBHOOK_REPLICAS="${DEFAULT_WEBHOOK_REPLICAS:-1}"
+DEFAULT_WORKER_REPLICAS="${DEFAULT_WORKER_REPLICAS:-1}"
 
 require_binary() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -119,6 +121,10 @@ if ! kubectl wait \
 fi
 
 kubectl apply --namespace "${NAMESPACE}" -f "${deployment_manifest}"
+if [[ "${ENABLE_HPA}" != "true" ]]; then
+  kubectl scale "deployment/${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" --replicas="${DEFAULT_WEBHOOK_REPLICAS}"
+  kubectl scale "deployment/${WORKER_DEPLOYMENT}" --namespace "${NAMESPACE}" --replicas="${DEFAULT_WORKER_REPLICAS}"
+fi
 if ! kubectl rollout status "deployment/${WEBHOOK_DEPLOYMENT}" --namespace "${NAMESPACE}" --timeout=300s; then
   mark_failed_digest
   exit 1

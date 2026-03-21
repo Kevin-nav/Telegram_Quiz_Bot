@@ -28,6 +28,11 @@ class ApplicationState:
     state_store: InteractiveStateStore
     dispatcher: TelegramUpdateDispatcher | None = None
     arq_pool: Any = None
+    startup_ready: bool = False
+    startup_error: str | None = None
+    telegram_initialized: bool = False
+    telegram_started: bool = False
+    webhook_registered: bool = False
 
 
 async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
@@ -47,8 +52,6 @@ async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
     if include_arq:
         state.arq_pool = await init_arq_pool()
     configure_application_services(state)
-    state.dispatcher = TelegramUpdateDispatcher(state)
-    state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
     return state
 
 
@@ -67,11 +70,22 @@ async def startup_web_app(state: ApplicationState) -> None:
     logger.info("Starting up Adarkwa Study Bot web application.")
 
     if state.arq_pool is None:
-        state.arq_pool = await init_arq_pool()
+        try:
+            state.arq_pool = await init_arq_pool()
+        except Exception as exc:
+            state.startup_error = f"redis_unavailable:{exc.__class__.__name__}"
+            logger.exception(
+                "Starting in degraded mode because Redis/ARQ initialization failed."
+            )
+            return
 
     await state.telegram_app.initialize()
+    state.telegram_initialized = True
     await state.telegram_app.start()
+    state.telegram_started = True
     await set_bot_commands(state.telegram_app)
+    state.dispatcher = TelegramUpdateDispatcher(state)
+    state.telegram_app.bot_data["background_scheduler"] = state.dispatcher
 
     if state.settings.webhook_url:
         webhook_path = f"{state.settings.webhook_url.rstrip('/')}/webhook"
@@ -81,6 +95,10 @@ async def startup_web_app(state: ApplicationState) -> None:
             allowed_updates=["message", "callback_query", "poll_answer"],
             max_connections=100,
         )
+        state.webhook_registered = True
+
+    state.startup_ready = True
+    state.startup_error = None
 
 
 async def shutdown_web_app(state: ApplicationState) -> None:
@@ -89,8 +107,13 @@ async def shutdown_web_app(state: ApplicationState) -> None:
     if state.dispatcher is not None:
         await state.dispatcher.shutdown()
 
-    await state.telegram_app.stop()
-    await state.telegram_app.shutdown()
+    if state.telegram_started:
+        await state.telegram_app.stop()
+        state.telegram_started = False
+    if state.telegram_initialized:
+        await state.telegram_app.shutdown()
+        state.telegram_initialized = False
+    state.startup_ready = False
     await close_arq_pool()
 
 

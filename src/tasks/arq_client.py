@@ -23,10 +23,14 @@ async def init_arq_pool():
     global arq_pool
     if arq_pool is None:
         logger.info("Initializing ARQ connection pool.")
-        arq_pool = await create_pool(
-            build_arq_redis_settings(),
-            default_queue_name=ARQ_QUEUE_NAME,
-        )
+        try:
+            arq_pool = await create_pool(
+                build_arq_redis_settings(),
+                default_queue_name=ARQ_QUEUE_NAME,
+            )
+        except Exception:
+            logger.exception("Unable to initialize the ARQ connection pool.")
+            raise
     return arq_pool
 
 
