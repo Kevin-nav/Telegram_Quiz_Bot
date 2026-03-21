@@ -248,7 +248,16 @@ class QuizSessionService:
         return cached_questions[:question_count]
 
     async def _load_ready_questions(self, course_id: str) -> list[QuizQuestion]:
-        ready_questions = await self.question_bank_repository.list_ready_questions(course_id)
+        try:
+            ready_questions = await self.question_bank_repository.list_ready_questions(
+                course_id
+            )
+        except Exception:
+            logger.exception(
+                "Failed to load ready questions for course_id=%s; falling back to placeholders.",
+                course_id,
+            )
+            return []
         quiz_questions: list[QuizQuestion] = []
 
         for question in ready_questions:
