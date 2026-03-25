@@ -5,14 +5,17 @@ from src.bot.callbacks import parse_callback
 from src.bot.copy import (
     build_help_message,
     build_home_message,
+    build_incomplete_study_profile_message,
     build_missing_course_message,
+    build_no_questions_available_message,
     build_performance_placeholder,
-    build_quiz_ready_message,
+    build_quiz_course_prompt,
 )
 from src.bot.handlers.profile_setup import LABEL_KEY, STATE_KEY
-from src.domains.quiz.service import QuizSessionService
+from src.domains.quiz.service import NoQuizQuestionsAvailableError, QuizSessionService
 from src.bot.keyboards import (
     build_home_keyboard,
+    build_quiz_course_keyboard,
     build_quiz_length_keyboard,
     build_setup_keyboard,
 )
@@ -89,6 +92,9 @@ def _course_name(user) -> str:
     return _humanize(getattr(user, "preferred_course_code", None), "Your Course")
 
 
+QUIZ_SELECTION_KEY = "quiz_selection"
+
+
 def _initial_setup_state() -> dict[str, str | None]:
     return {
         "faculty": None,
@@ -134,6 +140,36 @@ async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+def _user_has_complete_profile(user) -> bool:
+    return all(
+        getattr(user, field, None)
+        for field in ("faculty_code", "program_code", "level_code", "semester_code")
+    )
+
+
+def _get_profile_courses(
+    context: ContextTypes.DEFAULT_TYPE,
+    user,
+) -> list[dict[str, str]]:
+    return _get_catalog_service(context).get_courses(
+        faculty_code=user.faculty_code,
+        program_code=user.program_code,
+        level_code=user.level_code,
+        semester_code=user.semester_code,
+    )
+
+
+def _get_selected_quiz_course(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> dict[str, str] | None:
+    selected = context.user_data.get(QUIZ_SELECTION_KEY)
+    if not isinstance(selected, dict):
+        return None
+    if "course_id" not in selected or "course_name" not in selected:
+        return None
+    return selected
+
+
 async def handle_home_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -145,19 +181,53 @@ async def handle_home_callback(
         return
 
     profile_service = _get_profile_service(context)
+    quiz_entry_service = _get_quiz_entry_service(context)
     user = await profile_service.load_or_initialize_user(update.effective_user.id)
 
     if parts[0] == "home" and len(parts) >= 2:
         action = parts[1]
-        quiz_entry_service = _get_quiz_entry_service(context)
 
         if action == "start_quiz":
+            if not _user_has_complete_profile(user):
+                await query.edit_message_text(
+                    text=build_incomplete_study_profile_message(),
+                    reply_markup=build_home_keyboard(
+                        _get_home_service(context).build_home(
+                            _build_home_profile(user),
+                            has_active_quiz=getattr(user, "has_active_quiz", False),
+                        )["buttons"]
+                    ),
+                )
+                return
+
+            courses = _get_profile_courses(context, user)
+            if not courses:
+                await query.edit_message_text(
+                    text=build_missing_course_message(),
+                    reply_markup=build_home_keyboard(
+                        _get_home_service(context).build_home(
+                            _build_home_profile(user),
+                            has_active_quiz=getattr(user, "has_active_quiz", False),
+                        )["buttons"]
+                    ),
+                )
+                return
+
             await query.edit_message_text(
-                text=quiz_entry_service.build_length_prompt(_course_name(user)),
-                reply_markup=build_quiz_length_keyboard(
-                    quiz_entry_service.QUESTION_COUNTS
+                text=build_quiz_course_prompt(
+                    _humanize(getattr(user, "program_code", None), None),
+                    (
+                        f"Level {user.level_code}"
+                        if getattr(user, "level_code", None)
+                        else None
+                    ),
                 ),
+                reply_markup=build_quiz_course_keyboard(courses),
             )
+            return
+
+        if action == "back":
+            await _render_home(query, context, user)
             return
 
         if action == "study_settings":
@@ -209,10 +279,60 @@ async def handle_home_callback(
             )
             return
 
+    if parts[0] == "quiz" and len(parts) >= 3 and parts[1] == "course":
+        course_code = parts[2]
+        selected_course = next(
+            (
+                course
+                for course in _get_profile_courses(context, user)
+                if course["code"] == course_code
+            ),
+            None,
+        )
+        if selected_course is None:
+            await query.edit_message_text(
+                text=build_missing_course_message(),
+                reply_markup=build_home_keyboard(
+                    _get_home_service(context).build_home(
+                        _build_home_profile(user),
+                        has_active_quiz=getattr(user, "has_active_quiz", False),
+                    )["buttons"]
+                ),
+            )
+            return
+
+        context.user_data[QUIZ_SELECTION_KEY] = {
+            "course_id": selected_course["code"],
+            "course_name": selected_course["name"],
+        }
+        await query.edit_message_text(
+            text=quiz_entry_service.build_length_prompt(selected_course["name"]),
+            reply_markup=build_quiz_length_keyboard(
+                quiz_entry_service.QUESTION_COUNTS
+            ),
+        )
+        return
+
     if parts[0] == "quiz" and len(parts) >= 3 and parts[1] == "length":
         question_count = int(parts[2])
+        selected_course = _get_selected_quiz_course(context)
+        if selected_course is None:
+            await query.edit_message_text(
+                text=build_missing_course_message(),
+                reply_markup=build_home_keyboard(
+                    _get_home_service(context).build_home(
+                        _build_home_profile(user),
+                        has_active_quiz=getattr(user, "has_active_quiz", False),
+                    )["buttons"]
+                ),
+            )
+            return
+
         await query.edit_message_text(
-            text=f"Starting your {question_count}-question quiz for {_course_name(user)}.",
+            text=(
+                f"Starting your {question_count}-question quiz for "
+                f"{selected_course['course_name']}."
+            ),
             reply_markup=build_home_keyboard(
                 _get_home_service(context).build_home(
                     _build_home_profile(user),
@@ -226,12 +346,25 @@ async def handle_home_callback(
             chat_id = getattr(chat, "chat_id", None)
         if chat_id is None:
             return
-        await _get_quiz_session_service(context).start_quiz(
-            bot=context.bot,
-            user_id=update.effective_user.id,
-            chat_id=chat_id,
-            course_id=_course_id(user),
-            course_name=_course_name(user),
-            question_count=question_count,
-            schedule_background=_get_schedule_background(context),
-        )
+        try:
+            await _get_quiz_session_service(context).start_quiz(
+                bot=context.bot,
+                user_id=update.effective_user.id,
+                chat_id=chat_id,
+                course_id=selected_course["course_id"],
+                course_name=selected_course["course_name"],
+                question_count=question_count,
+                schedule_background=_get_schedule_background(context),
+            )
+        except NoQuizQuestionsAvailableError:
+            await query.edit_message_text(
+                text=build_no_questions_available_message(
+                    selected_course["course_name"]
+                ),
+                reply_markup=build_home_keyboard(
+                    _get_home_service(context).build_home(
+                        _build_home_profile(user),
+                        has_active_quiz=getattr(user, "has_active_quiz", False),
+                    )["buttons"]
+                ),
+            )

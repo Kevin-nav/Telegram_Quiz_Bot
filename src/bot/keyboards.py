@@ -5,6 +5,7 @@ from src.bot.callbacks import (
     profile_back_callback,
     profile_callback,
     profile_cancel_callback,
+    quiz_course_callback,
     quiz_length_callback,
 )
 
@@ -55,3 +56,19 @@ def build_quiz_length_keyboard(lengths: tuple[int, ...] = (10, 20, 30)) -> Inlin
     return InlineKeyboardMarkup(
         [[_button(f"{length} Questions", quiz_length_callback(length))] for length in lengths]
     )
+
+
+def build_quiz_course_keyboard(
+    courses: list[dict[str, str]],
+    *,
+    include_back: bool = True,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [_button(course["name"], quiz_course_callback(course["code"]))]
+        for course in courses
+    ]
+
+    if include_back:
+        rows.append([_button("Back", home_callback("start_quiz"))])
+
+    return InlineKeyboardMarkup(rows)

@@ -42,3 +42,18 @@ def build_quiz_ready_message(course_name: str | None, question_count: int) -> st
 
 def build_missing_course_message() -> str:
     return "Choose your course first so the bot knows where to start."
+
+
+def build_quiz_course_prompt(program_name: str | None, level_name: str | None) -> str:
+    details = ", ".join(part for part in (program_name, level_name) if part)
+    if details:
+        return f"Choose a course for your quiz.\n\n{details}"
+    return "Choose a course for your quiz."
+
+
+def build_no_questions_available_message(course_name: str) -> str:
+    return f"No questions are available for {course_name} yet."
+
+
+def build_incomplete_study_profile_message() -> str:
+    return "Complete your study profile first so I can show the right courses for your programme."

@@ -26,6 +26,10 @@ from src.tasks.arq_client import (
 logger = logging.getLogger(__name__)
 
 
+class NoQuizQuestionsAvailableError(Exception):
+    pass
+
+
 class QuizSessionService:
     def __init__(
         self,
@@ -289,14 +293,12 @@ class QuizSessionService:
                 course_id=course_id,
                 quiz_length=question_count,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception(
-                "Failed to load adaptive questions for course_id=%s; falling back to placeholders.",
+                "Failed to load adaptive questions for course_id=%s.",
                 course_id,
             )
-            return self._build_placeholder_questions(course_name, max(question_count, 30))[
-                :question_count
-            ]
+            raise NoQuizQuestionsAvailableError(course_id) from exc
 
         question_rows_by_key = {
             row.question_key: row for row in selection.question_rows if hasattr(row, "question_key")
@@ -323,39 +325,10 @@ class QuizSessionService:
             return quiz_questions[:question_count]
 
         logger.warning(
-            "Adaptive selector returned no canonical questions for course_id=%s; falling back to placeholders.",
+            "Adaptive selector returned no canonical questions for course_id=%s.",
             course_id,
         )
-        return self._build_placeholder_questions(course_name, max(question_count, 30))[
-            :question_count
-        ]
-
-    def _build_placeholder_questions(
-        self, course_name: str, question_count: int
-    ) -> list[QuizQuestion]:
-        questions: list[QuizQuestion] = []
-        for index in range(question_count):
-            correct_option = index % 4
-            options = [
-                "Review core idea",
-                "Apply the concept",
-                "Check the hidden assumption",
-                "Revisit the worked example",
-            ]
-            questions.append(
-                QuizQuestion(
-                    question_id=f"{course_name.lower().replace(' ', '-')}-{index + 1}",
-                    prompt=f"{course_name}: question {index + 1}",
-                    options=options,
-                    correct_option_id=correct_option,
-                    explanation="Placeholder quiz content until the adaptive selector is connected.",
-                    topic_id=f"{course_name.lower().replace(' ', '-')}-topic",
-                    scaled_score=1.0,
-                    band=1,
-                    time_allocated_seconds=45,
-                )
-            )
-        return questions
+        raise NoQuizQuestionsAvailableError(course_id)
 
     def _build_quiz_question(
         self,

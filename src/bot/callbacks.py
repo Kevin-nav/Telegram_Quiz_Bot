@@ -44,3 +44,7 @@ def profile_cancel_callback() -> str:
 
 def quiz_length_callback(length: int) -> str:
     return build_callback("quiz", "length", str(length))
+
+
+def quiz_course_callback(course_code: str) -> str:
+    return build_callback("quiz", "course", course_code)

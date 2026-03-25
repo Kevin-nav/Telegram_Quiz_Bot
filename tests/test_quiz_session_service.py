@@ -5,7 +5,7 @@ import pytest
 
 from src.domains.adaptive.models import AdaptiveQuestionProfile, AdaptiveStudentState
 from src.domains.adaptive.service import AdaptiveSelectionOutput
-from src.domains.quiz.service import QuizSessionService
+from src.domains.quiz.service import NoQuizQuestionsAvailableError, QuizSessionService
 from src.infra.redis.state_store import InteractiveStateStore
 from tests.fakes import FakeRedis
 
@@ -332,7 +332,7 @@ async def test_select_questions_uses_adaptive_service_and_canonical_rows():
 
 
 @pytest.mark.asyncio
-async def test_select_questions_falls_back_to_placeholders_when_no_canonical_questions():
+async def test_select_questions_raises_when_no_canonical_questions_exist():
     store = InteractiveStateStore(FakeRedis())
     adaptive_service = FakeAdaptiveLearningService(question_rows=[])
     service = QuizSessionService(
@@ -340,12 +340,10 @@ async def test_select_questions_falls_back_to_placeholders_when_no_canonical_que
         adaptive_learning_service=adaptive_service,
     )
 
-    questions = await service._select_questions(
-        user_id=42,
-        course_id="linear-electronics",
-        course_name="Linear Electronics",
-        question_count=1,
-    )
-
-    assert questions[0].question_id.startswith("linear-electronics-")
-    assert questions[0].time_allocated_seconds == 45
+    with pytest.raises(NoQuizQuestionsAvailableError):
+        await service._select_questions(
+            user_id=42,
+            course_id="linear-electronics",
+            course_name="Linear Electronics",
+            question_count=1,
+        )
