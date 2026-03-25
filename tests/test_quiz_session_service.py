@@ -14,6 +14,8 @@ class FakeBot:
     def __init__(self):
         self.poll_calls = []
         self.message_calls = []
+        self.photo_calls = []
+        self.events = []
 
     async def send_poll(
         self,
@@ -37,10 +39,16 @@ class FakeBot:
                 "poll_id": poll_id,
             }
         )
+        self.events.append(("poll", poll_id))
         return SimpleNamespace(poll=SimpleNamespace(id=poll_id))
 
     async def send_message(self, *, chat_id, text):
         self.message_calls.append({"chat_id": chat_id, "text": text})
+        self.events.append(("message", text))
+
+    async def send_photo(self, *, chat_id, photo):
+        self.photo_calls.append({"chat_id": chat_id, "photo": photo})
+        self.events.append(("photo", photo))
 
 
 class FakeScheduler:
@@ -175,6 +183,8 @@ async def test_start_quiz_creates_state_and_sends_first_poll():
     assert loaded_session.questions[0].scaled_score == 2.0
     assert adaptive_service.calls[0]["course_id"] == "calculus"
     assert bot.poll_calls
+    assert not bot.photo_calls
+    assert bot.poll_calls[0]["question"] == "What is the derivative of x^2?"
 
 
 @pytest.mark.asyncio
@@ -276,6 +286,8 @@ async def test_poll_answer_advances_quiz_without_db_dependency(monkeypatch):
     assert loaded_session.current_index == 1
     assert loaded_session.current_poll_id == "poll-2"
     assert len(bot.poll_calls) == 2
+    assert bot.message_calls[0]["text"].startswith("Correct. Nice work.")
+    assert "Explanation:" in bot.message_calls[0]["text"]
     assert attempt_jobs
     assert attempt_jobs[0].payload["time_taken_seconds"] is not None
     assert attempt_jobs[0].payload["time_allocated_seconds"] is not None
@@ -347,3 +359,129 @@ async def test_select_questions_raises_when_no_canonical_questions_exist():
             course_name="Linear Electronics",
             question_count=1,
         )
+
+
+@pytest.mark.asyncio
+async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback():
+    store = InteractiveStateStore(FakeRedis())
+    adaptive_service = FakeAdaptiveLearningService(
+        question_rows=[
+            SimpleNamespace(
+                id=17,
+                question_key="linear-electronics-q1",
+                question_text="Rendered from image",
+                options=["Option 1", "Option 2", "Option 3", "Option 4"],
+                correct_option_text="Option 2",
+                short_explanation="Review the op-amp rule.",
+                topic_id="op_amp_basics",
+                scaled_score=1.7,
+                band=1,
+                cognitive_level="Understanding",
+                processing_complexity=1.0,
+                distractor_complexity=1.1,
+                note_reference=1.0,
+                question_type="MCQ",
+                option_count=4,
+                has_latex=True,
+                explanation_asset_url="https://cdn.example.com/linear-electronics-q1-expl.png",
+                question_asset_url="https://cdn.example.com/linear-electronics-q1.png",
+            ),
+        ]
+    )
+    service = QuizSessionService(
+        state_store=store,
+        adaptive_learning_service=adaptive_service,
+    )
+    bot = FakeBot()
+    scheduler = FakeScheduler()
+
+    session = await service.start_quiz(
+        bot=bot,
+        user_id=42,
+        chat_id=99,
+        course_id="linear-electronics",
+        course_name="Linear Electronics",
+        question_count=1,
+        schedule_background=scheduler,
+    )
+
+    assert bot.message_calls[0]["text"] == "Question 1 of 1"
+    assert bot.photo_calls[0]["photo"] == "https://cdn.example.com/linear-electronics-q1.png"
+    assert bot.poll_calls[0]["question"] == "Choose the correct option."
+    assert bot.poll_calls[0]["options"] == ["A", "B", "C", "D"]
+
+    handled = await service.handle_poll_answer(
+        bot=bot,
+        poll_answer=SimpleNamespace(
+            poll_id="poll-1",
+            option_ids=[session.questions[0].correct_option_id],
+        ),
+        schedule_background=scheduler,
+    )
+
+    assert handled is True
+    assert bot.message_calls[1]["text"] == "Correct. Nice work."
+    assert bot.photo_calls[1]["photo"] == "https://cdn.example.com/linear-electronics-q1-expl.png"
+    assert "Quiz complete for Linear Electronics." in bot.message_calls[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_poll_answer_non_latex_flow_sends_feedback_then_text_explanation():
+    store = InteractiveStateStore(FakeRedis())
+    adaptive_service = FakeAdaptiveLearningService(
+        question_rows=[
+            SimpleNamespace(
+                id=17,
+                question_key="calculus-q1",
+                question_text="What is the derivative of x^2?",
+                options=["x", "2x", "x^2", "2"],
+                correct_option_text="2x",
+                short_explanation="Apply the power rule.",
+                topic_id="derivatives",
+                scaled_score=2.0,
+                band=2,
+                cognitive_level="Applying",
+                processing_complexity=1.0,
+                distractor_complexity=1.2,
+                note_reference=1.0,
+                question_type="MCQ",
+                option_count=4,
+                has_latex=False,
+                explanation_asset_url=None,
+                question_asset_url="https://cdn.example.com/calculus-q1.png",
+            ),
+        ]
+    )
+    service = QuizSessionService(
+        state_store=store,
+        adaptive_learning_service=adaptive_service,
+    )
+    bot = FakeBot()
+    scheduler = FakeScheduler()
+
+    session = await service.start_quiz(
+        bot=bot,
+        user_id=42,
+        chat_id=99,
+        course_id="calculus",
+        course_name="Calculus",
+        question_count=1,
+        schedule_background=scheduler,
+    )
+
+    loaded_session = await store.get_quiz_session(session.session_id)
+    loaded_session.questions[0].presented_at = datetime.now(UTC) - timedelta(seconds=8)
+    await store.set_quiz_session(loaded_session)
+
+    await service.handle_poll_answer(
+        bot=bot,
+        poll_answer=SimpleNamespace(
+            poll_id="poll-1",
+            option_ids=[1],
+        ),
+        schedule_background=scheduler,
+    )
+
+    assert "correct" in bot.message_calls[-2]["text"].lower()
+    assert "apply the power rule" in bot.message_calls[-2]["text"].lower()
+    assert "Quiz complete for Calculus." in bot.message_calls[-1]["text"]

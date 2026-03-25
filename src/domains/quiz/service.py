@@ -162,7 +162,6 @@ class QuizSessionService:
                 session.score += 1
 
             session.current_poll_id = None
-            session.current_index += 1
 
             schedule_background(
                 enqueue_persist_quiz_attempt(
@@ -203,6 +202,15 @@ class QuizSessionService:
                     }
                 )
             )
+
+            await self._send_answer_feedback(
+                session,
+                question=question,
+                is_correct=is_correct,
+                bot=bot,
+            )
+
+            session.current_index += 1
 
             if session.current_index >= session.total_questions:
                 session.status = "completed"
@@ -259,10 +267,25 @@ class QuizSessionService:
                 question
             )
 
+        question_text = question.prompt
+        poll_options = question.options
+        if question.has_latex:
+            await bot.send_message(
+                chat_id=session.chat_id,
+                text=self._build_question_progress_text(session),
+            )
+            if question.question_asset_url:
+                await bot.send_photo(
+                    chat_id=session.chat_id,
+                    photo=question.question_asset_url,
+                )
+            question_text = "Choose the correct option."
+            poll_options = self._latex_poll_options(question)
+
         message = await bot.send_poll(
             chat_id=session.chat_id,
-            question=question.prompt,
-            options=question.options,
+            question=question_text,
+            options=poll_options,
             type="quiz",
             is_anonymous=False,
             correct_option_id=question.correct_option_id,
@@ -330,6 +353,39 @@ class QuizSessionService:
         )
         raise NoQuizQuestionsAvailableError(course_id)
 
+    async def _send_answer_feedback(
+        self,
+        session: QuizSessionState,
+        *,
+        question: QuizQuestion,
+        is_correct: bool,
+        bot,
+    ) -> None:
+        if question.has_latex:
+            await bot.send_message(
+                chat_id=session.chat_id,
+                text=self._build_feedback_text(question, is_correct=is_correct),
+            )
+            if question.explanation_asset_url:
+                await bot.send_photo(
+                    chat_id=session.chat_id,
+                    photo=question.explanation_asset_url,
+                )
+            elif question.explanation:
+                await bot.send_message(
+                    chat_id=session.chat_id,
+                    text=question.explanation,
+                )
+            return
+
+        await bot.send_message(
+            chat_id=session.chat_id,
+            text=self._build_feedback_with_explanation_text(
+                question,
+                is_correct=is_correct,
+            ),
+        )
+
     def _build_quiz_question(
         self,
         question_row,
@@ -348,6 +404,7 @@ class QuizSessionService:
         if question_row.has_latex:
             if config_index is None:
                 config_index = arrange_options_latex(selected_question)
+            options = self._latex_poll_options(question_row)
         else:
             options, arrangement_hash = arrange_options_non_latex(question_row)
             correct_option_id = options.index(question_row.correct_option_text)
@@ -380,6 +437,42 @@ class QuizSessionService:
         self, question: AdaptiveQuestionProfile
     ) -> int:
         return calculate_question_time_limit(question)
+
+    def _build_question_progress_text(self, session: QuizSessionState) -> str:
+        return f"Question {session.current_index + 1} of {session.total_questions}"
+
+    def _build_feedback_text(
+        self,
+        question: QuizQuestion,
+        *,
+        is_correct: bool,
+    ) -> str:
+        if is_correct:
+            return "Correct. Nice work."
+        return (
+            "Not quite. "
+            f"The correct answer was {self._correct_option_label(question)}."
+        )
+
+    def _build_feedback_with_explanation_text(
+        self,
+        question: QuizQuestion,
+        *,
+        is_correct: bool,
+    ) -> str:
+        feedback = self._build_feedback_text(question, is_correct=is_correct)
+        if question.explanation:
+            return f"{feedback}\n\nExplanation: {question.explanation}"
+        return feedback
+
+    def _correct_option_label(self, question) -> str:
+        if question.has_latex:
+            return self._latex_poll_options(question)[question.correct_option_id]
+        return question.options[question.correct_option_id]
+
+    def _latex_poll_options(self, question) -> list[str]:
+        option_count = len(question.options)
+        return [chr(65 + index) for index in range(option_count)]
 
     def _require_state_store(self) -> None:
         if self.state_store is None:
