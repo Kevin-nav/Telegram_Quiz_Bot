@@ -1,11 +1,26 @@
 import logging
+from datetime import UTC, datetime
 
+from src.domains.adaptive.models import AdaptiveQuestionProfile
+from src.domains.adaptive.review import (
+    analyze_distractor_patterns,
+    analyze_empirical_difficulty,
+    analyze_time_allocation,
+)
+from src.domains.adaptive.service import AdaptiveLearningService
+from src.domains.adaptive.srs import advance_srs_box
 from src.analytics.internal_analytics import analytics
 from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
+from src.infra.db.repositories.adaptive_review_repository import AdaptiveReviewRepository
+from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
+from src.infra.redis.idempotency import AdaptiveAttemptIdempotencyStore
 
 
 logger = logging.getLogger(__name__)
 question_attempt_repository = QuestionAttemptRepository()
+adaptive_learning_service = AdaptiveLearningService()
+adaptive_review_repository = AdaptiveReviewRepository()
+student_question_srs_repository = StudentQuestionSrsRepository()
 
 
 async def record_analytics_event(payload: dict) -> None:
@@ -16,38 +31,227 @@ async def record_analytics_event(payload: dict) -> None:
     )
 
 
-async def persist_quiz_attempt(payload: dict) -> None:
+def _attempt_event_id(payload: dict) -> str:
+    return f"{payload['session_id']}:{payload['question_index']}:{payload['user_id']}"
+
+
+def _build_question_profile(payload: dict) -> AdaptiveQuestionProfile | None:
+    metadata = payload.get("metadata", {})
+    topic_id = metadata.get("topic_id")
+    scaled_score = metadata.get("scaled_score")
+    if topic_id is None or scaled_score is None:
+        return None
+
+    return AdaptiveQuestionProfile(
+        question_id=payload["question_id"],
+        topic_id=topic_id,
+        scaled_score=float(scaled_score),
+        band=int(metadata.get("band", 3)),
+        cognitive_level=metadata.get("cognitive_level"),
+        processing_complexity=metadata.get("processing_complexity"),
+        distractor_complexity=metadata.get("distractor_complexity"),
+        note_reference=metadata.get("note_reference"),
+        question_type=metadata.get("question_type", "MCQ"),
+        option_count=int(metadata.get("option_count", 4)),
+        has_latex=bool(metadata.get("has_latex", False)),
+        arrangement_hash=payload.get("arrangement_hash"),
+        config_index=payload.get("config_index"),
+    )
+
+
+async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
     logger.info("Persisting quiz attempt payload=%s", payload)
+    lock_token = None
+    if runtime is not None:
+        idempotency_store = AdaptiveAttemptIdempotencyStore(runtime.redis)
+        claimed = await idempotency_store.claim_attempt(_attempt_event_id(payload))
+        if not claimed:
+            logger.info(
+                "Skipping duplicate adaptive attempt update for session_id=%s question_index=%s user_id=%s",
+                payload["session_id"],
+                payload["question_index"],
+                payload["user_id"],
+            )
+            return
+
+        lock_token = await runtime.state_store.acquire_adaptive_update_lock(
+            payload["user_id"],
+            payload["course_id"],
+        )
+        if lock_token is None:
+            logger.info(
+                "Adaptive update already in progress for user_id=%s course_id=%s; skipping duplicate worker execution.",
+                payload["user_id"],
+                payload["course_id"],
+            )
+            return
+
     source_question_id = payload.get("source_question_id")
-    if source_question_id is not None:
-        await question_attempt_repository.create_attempt(
-            {
-                "session_id": payload["session_id"],
-                "user_id": payload["user_id"],
-                "course_id": payload["course_id"],
-                "question_id": source_question_id,
-                "question_key": payload["question_id"],
-                "question_index": payload["question_index"],
-                "selected_option_ids": payload.get("selected_option_ids", []),
-                "selected_option_text": payload.get("selected_option_text"),
-                "correct_option_id": payload.get("correct_option_id"),
-                "is_correct": payload["is_correct"],
-                "arrangement_hash": payload.get("arrangement_hash"),
-                "config_index": payload.get("config_index"),
-                "time_taken_seconds": payload.get("time_taken_seconds"),
-                "time_allocated_seconds": payload.get("time_allocated_seconds"),
-                "attempt_metadata": payload.get("metadata", {}),
-            }
+    metadata = payload.get("metadata", {})
+    try:
+        if source_question_id is not None:
+            await question_attempt_repository.create_attempt(
+                {
+                    "session_id": payload["session_id"],
+                    "user_id": payload["user_id"],
+                    "course_id": payload["course_id"],
+                    "question_id": source_question_id,
+                    "question_key": payload["question_id"],
+                    "question_index": payload["question_index"],
+                    "selected_option_ids": payload.get("selected_option_ids", []),
+                    "selected_option_text": payload.get("selected_option_text"),
+                    "correct_option_id": payload.get("correct_option_id"),
+                    "is_correct": payload["is_correct"],
+                    "arrangement_hash": payload.get("arrangement_hash"),
+                    "config_index": payload.get("config_index"),
+                    "time_taken_seconds": payload.get("time_taken_seconds"),
+                    "time_allocated_seconds": payload.get("time_allocated_seconds"),
+                    "attempt_metadata": metadata,
+                }
+            )
+        else:
+            logger.warning(
+                "Skipping canonical question_attempt persistence for payload without source_question_id question_id=%s",
+                payload.get("question_id"),
+            )
+
+        topic_id = metadata.get("topic_id")
+        if topic_id is not None and metadata.get("scaled_score") is not None:
+            scaled_score = metadata.get("scaled_score")
+            service = (
+                AdaptiveLearningService(state_store=runtime.state_store)
+                if runtime is not None
+                else adaptive_learning_service
+            )
+            await service.apply_attempt_update(
+                user_id=payload["user_id"],
+                course_id=payload["course_id"],
+                question=AdaptiveQuestionProfile(
+                    question_id=payload["question_id"],
+                    topic_id=topic_id,
+                    scaled_score=float(scaled_score),
+                    band=int(metadata.get("band", 3)),
+                    cognitive_level=metadata.get("cognitive_level"),
+                    processing_complexity=metadata.get("processing_complexity"),
+                    distractor_complexity=metadata.get("distractor_complexity"),
+                    note_reference=metadata.get("note_reference"),
+                    question_type=metadata.get("question_type", "MCQ"),
+                    option_count=int(metadata.get("option_count", 4)),
+                    has_latex=bool(metadata.get("has_latex", False)),
+                    arrangement_hash=payload.get("arrangement_hash"),
+                    config_index=payload.get("config_index"),
+                ),
+                is_correct=payload["is_correct"],
+                time_taken_seconds=payload.get("time_taken_seconds"),
+                time_allocated_seconds=payload.get("time_allocated_seconds"),
+                selected_distractor=payload.get("selected_option_text"),
+                attempts_for_question=[],
+            )
+            if source_question_id is not None:
+                existing_srs = await student_question_srs_repository.get(
+                    payload["user_id"],
+                    source_question_id,
+                )
+                current_box = existing_srs.box if existing_srs is not None else 0
+                next_box = advance_srs_box(current_box, payload["is_correct"])
+                presented_at_raw = metadata.get("presented_at")
+                presented_at = (
+                    datetime.fromisoformat(presented_at_raw)
+                    if presented_at_raw
+                    else datetime.now(UTC)
+                )
+                now = datetime.now(UTC)
+                await student_question_srs_repository.upsert(
+                    user_id=payload["user_id"],
+                    course_id=payload["course_id"],
+                    question_id=source_question_id,
+                    box=next_box,
+                    last_presented_at=presented_at,
+                    last_correct_at=(
+                        now
+                        if payload["is_correct"]
+                        else existing_srs.last_correct_at if existing_srs is not None else None
+                    ),
+                    last_transition_at=now,
+                )
+
+        await analytics.track_event(
+            user_id=payload["user_id"],
+            event_type="quiz_attempt_persisted",
+            metadata=payload,
         )
-    else:
-        logger.warning(
-            "Skipping canonical question_attempt persistence for payload without source_question_id question_id=%s",
-            payload.get("question_id"),
-        )
-    await analytics.track_event(
-        user_id=payload["user_id"],
-        event_type="quiz_attempt_persisted",
-        metadata=payload,
+    finally:
+        if runtime is not None and lock_token is not None:
+            await runtime.state_store.release_adaptive_update_lock(
+                payload["user_id"],
+                payload["course_id"],
+                lock_token,
+            )
+
+
+async def review_empirical_difficulty(payload: dict, attempts: list) -> None:
+    question = _build_question_profile(payload)
+    if question is None:
+        return
+
+    finding = analyze_empirical_difficulty(
+        question,
+        attempts,
+        question_id=int(payload["source_question_id"]),
+    )
+    if finding is None:
+        return
+
+    await adaptive_review_repository.create_or_update_open_flag(
+        question_id=finding.question_id,
+        flag_type=finding.flag_type,
+        reason=finding.reason,
+        suggestion=finding.suggestion,
+        metadata=finding.metadata,
+    )
+
+
+async def review_distractor_patterns(payload: dict, attempts: list) -> None:
+    question = _build_question_profile(payload)
+    if question is None:
+        return
+
+    finding = analyze_distractor_patterns(
+        question,
+        attempts,
+        question_id=int(payload["source_question_id"]),
+    )
+    if finding is None:
+        return
+
+    await adaptive_review_repository.create_or_update_open_flag(
+        question_id=finding.question_id,
+        flag_type=finding.flag_type,
+        reason=finding.reason,
+        suggestion=finding.suggestion,
+        metadata=finding.metadata,
+    )
+
+
+async def review_time_allocation(payload: dict, attempts: list) -> None:
+    question = _build_question_profile(payload)
+    if question is None:
+        return
+
+    finding = analyze_time_allocation(
+        question,
+        attempts,
+        question_id=int(payload["source_question_id"]),
+    )
+    if finding is None:
+        return
+
+    await adaptive_review_repository.create_or_update_open_flag(
+        question_id=finding.question_id,
+        flag_type=finding.flag_type,
+        reason=finding.reason,
+        suggestion=finding.suggestion,
+        metadata=finding.metadata,
     )
 
 

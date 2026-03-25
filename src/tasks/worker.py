@@ -17,6 +17,9 @@ from src.workers.background_jobs import (
     persist_quiz_attempt as handle_persist_quiz_attempt,
     persist_quiz_session_progress as handle_persist_quiz_session_progress,
     persist_user_profile as handle_persist_user_profile,
+    review_distractor_patterns as handle_review_distractor_patterns,
+    review_empirical_difficulty as handle_review_empirical_difficulty,
+    review_time_allocation as handle_review_time_allocation,
     rebuild_profile_cache as handle_rebuild_profile_cache,
     record_analytics_event as handle_record_analytics_event,
 )
@@ -55,7 +58,7 @@ async def record_analytics_event(ctx: dict[str, Any], payload: dict) -> None:
 
 
 async def persist_quiz_attempt(ctx: dict[str, Any], payload: dict) -> None:
-    await handle_persist_quiz_attempt(payload)
+    await handle_persist_quiz_attempt(payload, runtime=ctx["runtime"])
 
 
 async def persist_quiz_session_progress(ctx: dict[str, Any], payload: dict) -> None:
@@ -74,6 +77,18 @@ async def persist_user_profile(ctx: dict[str, Any], payload: dict) -> None:
     await handle_persist_user_profile(ctx["runtime"], payload)
 
 
+async def review_empirical_difficulty(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_review_empirical_difficulty(payload, payload.get("attempts", []))
+
+
+async def review_distractor_patterns(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_review_distractor_patterns(payload, payload.get("attempts", []))
+
+
+async def review_time_allocation(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_review_time_allocation(payload, payload.get("attempts", []))
+
+
 class WorkerSettings:
     functions = [
         process_telegram_update,
@@ -83,6 +98,9 @@ class WorkerSettings:
         generate_quiz_session,
         rebuild_profile_cache,
         persist_user_profile,
+        review_empirical_difficulty,
+        review_distractor_patterns,
+        review_time_allocation,
     ]
     redis_settings = build_arq_redis_settings()
     queue_name = ARQ_QUEUE_NAME
