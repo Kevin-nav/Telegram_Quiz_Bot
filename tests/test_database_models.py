@@ -45,3 +45,35 @@ def test_staff_access_models_have_expected_columns():
     assert {"id", "staff_user_id", "permission_id"} <= staff_user_permission_columns
     assert {"id", "staff_role_id", "permission_id"} <= staff_role_permission_columns
     assert {"id", "actor_staff_user_id", "action", "entity_type", "entity_id", "created_at"} <= audit_log_columns
+
+
+def test_catalog_models_have_expected_columns():
+    from src.infra.db.models.catalog_course import CatalogCourse
+    from src.infra.db.models.catalog_faculty import CatalogFaculty
+    from src.infra.db.models.catalog_level import CatalogLevel
+    from src.infra.db.models.catalog_program import CatalogProgram
+    from src.infra.db.models.catalog_semester import CatalogSemester
+    from src.infra.db.models.program_course_offering import ProgramCourseOffering
+
+    faculty_columns = {column.name for column in CatalogFaculty.__table__.columns}
+    program_columns = {column.name for column in CatalogProgram.__table__.columns}
+    level_columns = {column.name for column in CatalogLevel.__table__.columns}
+    semester_columns = {column.name for column in CatalogSemester.__table__.columns}
+    course_columns = {column.name for column in CatalogCourse.__table__.columns}
+    offering_columns = {column.name for column in ProgramCourseOffering.__table__.columns}
+
+    assert {"id", "code", "name", "is_active", "created_at", "updated_at"} <= faculty_columns
+    assert {"id", "faculty_code", "code", "name", "is_active", "created_at", "updated_at"} <= program_columns
+    assert {"id", "code", "name", "is_active", "created_at", "updated_at"} <= level_columns
+    assert {"id", "code", "name", "is_active", "created_at", "updated_at"} <= semester_columns
+    assert {"id", "code", "name", "short_name", "description", "is_active", "created_at", "updated_at"} <= course_columns
+    assert {
+        "id",
+        "program_code",
+        "level_code",
+        "semester_code",
+        "course_code",
+        "is_active",
+        "created_at",
+        "updated_at",
+    } <= offering_columns
