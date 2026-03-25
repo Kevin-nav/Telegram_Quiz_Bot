@@ -24,7 +24,12 @@ class CatalogNavigationService:
         return LEVELS.copy()
 
     def get_semesters(self, program_code: str, level_code: str) -> list[dict]:
-        if not self._program_exists(program_code) or level_code != "100":
+        if not self._program_exists(program_code):
+            return []
+        if not any(
+            course["level_code"] == level_code
+            for course in PROGRAM_COURSES.get(program_code, [])
+        ):
             return []
         return SEMESTERS.copy()
 
@@ -36,13 +41,18 @@ class CatalogNavigationService:
         semester_code: str,
     ) -> list[dict]:
         faculty = self._get_faculty(faculty_code)
-        if faculty is None or semester_code != "first" or level_code != "100":
+        if faculty is None:
             return []
 
         if not any(program["code"] == program_code for program in faculty["programs"]):
             return []
 
-        return PROGRAM_COURSES.get(program_code, []).copy()
+        return [
+            course
+            for course in PROGRAM_COURSES.get(program_code, [])
+            if course["level_code"] == level_code
+            and course["semester_code"] == semester_code
+        ]
 
     def _get_faculty(self, faculty_code: str) -> dict | None:
         for faculty in FACULTIES:

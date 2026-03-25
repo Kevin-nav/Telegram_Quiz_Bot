@@ -9,7 +9,10 @@ mapping already in the repository until first-semester seed data is added.
 from collections import defaultdict
 
 
-LEVELS = [{"code": "100", "name": "Level 100"}]
+LEVELS = [
+    {"code": "100", "name": "Level 100"},
+    {"code": "200", "name": "Level 200"},
+]
 
 SEMESTERS = [
     {"code": "first", "name": "First Semester", "active": True},
@@ -286,6 +289,43 @@ _DOCUMENTED_COURSE_PROGRAMS = [
     ),
 ]
 
+_SEE_200_FIRST_SEMESTER_COURSES = {
+    "electrical-and-electronics-engineering": [
+        {
+            "code": "transformers-and-dc-machines",
+            "name": "Transformers and DC Machines",
+        },
+        {
+            "code": "linear-electronics",
+            "name": "Linear Electronics",
+        },
+        {
+            "code": "programming-in-labview",
+            "name": "Programming in LabVIEW",
+        },
+        {
+            "code": "workshop-technology-and-practice",
+            "name": "Workshop Technology and Practice",
+        },
+        {
+            "code": "thermodynamics",
+            "name": "Thermodynamics",
+        },
+        {
+            "code": "differential-equations",
+            "name": "Differential Equations",
+        },
+        {
+            "code": "programming-in-matlab-simulink",
+            "name": "Programming in MATLAB/Simulink",
+        },
+        {
+            "code": "general-psychology",
+            "name": "General Psychology",
+        },
+    ]
+}
+
 
 def _slugify_course(course_name: str) -> str:
     return (
@@ -308,6 +348,16 @@ def _build_program_courses():
         }
         for program_code in program_codes:
             grouped[program_code].append(course)
+
+    for program_code, courses in _SEE_200_FIRST_SEMESTER_COURSES.items():
+        for course in courses:
+            grouped[program_code].append(
+                {
+                    **course,
+                    "level_code": "200",
+                    "semester_code": "first",
+                }
+            )
 
     return {
         program_code: sorted(courses, key=lambda entry: entry["name"])
