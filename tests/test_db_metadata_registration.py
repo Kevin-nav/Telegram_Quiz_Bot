@@ -9,3 +9,10 @@ def test_canonical_database_import_registers_question_bank_tables():
     assert "question_attempts" in table_names
     assert "student_question_srs" in table_names
     assert "adaptive_review_flags" in table_names
+    assert "staff_users" in table_names
+    assert "staff_roles" in table_names
+    assert "permissions" in table_names
+    assert "staff_user_roles" in table_names
+    assert "staff_user_permissions" in table_names
+    assert "staff_role_permissions" in table_names
+    assert "audit_logs" in table_names
