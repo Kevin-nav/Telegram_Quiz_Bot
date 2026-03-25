@@ -26,6 +26,7 @@ QUIZ_SESSION_TTL_SECONDS = 24 * 60 * 60
 POLL_MAP_TTL_SECONDS = 60 * 60
 LOCK_TTL_SECONDS = 15
 ADAPTIVE_SNAPSHOT_TTL_SECONDS = 10 * 60
+CATALOG_LOOKUP_TTL_SECONDS = 60 * 60
 
 
 @dataclass(slots=True)
@@ -66,6 +67,7 @@ class InteractiveStateStore:
     def __init__(self, redis_client):
         self.redis_client = redis_client
         self._local_cache: dict[str, tuple[float, object]] = {}
+        self._catalog_cache_keys: set[str] = set()
 
     async def claim_update(self, update_id: int, ttl_seconds: int = 300) -> bool:
         result = await self.redis_client.set(
@@ -221,6 +223,123 @@ class InteractiveStateStore:
         await self._delete_key(key)
         self._local_cache.pop(key, None)
 
+    async def cache_catalog_faculties(
+        self, faculties: list[dict], ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS
+    ) -> None:
+        await self._cache_catalog_value("faculties", faculties, ttl_seconds)
+
+    async def get_catalog_faculties(self) -> list[dict] | None:
+        return await self._get_catalog_value("faculties")
+
+    async def invalidate_catalog_faculties(self) -> None:
+        await self._invalidate_catalog_value("faculties")
+
+    async def cache_catalog_programs(
+        self,
+        faculty_code: str,
+        programs: list[dict],
+        ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS,
+    ) -> None:
+        await self._cache_catalog_value("programs", programs, ttl_seconds, faculty_code)
+
+    async def get_catalog_programs(self, faculty_code: str) -> list[dict] | None:
+        return await self._get_catalog_value("programs", faculty_code)
+
+    async def invalidate_catalog_programs(self, faculty_code: str) -> None:
+        await self._invalidate_catalog_value("programs", faculty_code)
+
+    async def cache_catalog_levels(
+        self,
+        program_code: str,
+        levels: list[dict],
+        ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS,
+    ) -> None:
+        await self._cache_catalog_value("levels", levels, ttl_seconds, program_code)
+
+    async def get_catalog_levels(self, program_code: str) -> list[dict] | None:
+        return await self._get_catalog_value("levels", program_code)
+
+    async def invalidate_catalog_levels(self, program_code: str) -> None:
+        await self._invalidate_catalog_value("levels", program_code)
+
+    async def cache_catalog_semesters(
+        self,
+        program_code: str,
+        level_code: str,
+        semesters: list[dict],
+        ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS,
+    ) -> None:
+        await self._cache_catalog_value(
+            "semesters",
+            semesters,
+            ttl_seconds,
+            program_code,
+            level_code,
+        )
+
+    async def get_catalog_semesters(
+        self, program_code: str, level_code: str
+    ) -> list[dict] | None:
+        return await self._get_catalog_value("semesters", program_code, level_code)
+
+    async def invalidate_catalog_semesters(self, program_code: str, level_code: str) -> None:
+        await self._invalidate_catalog_value("semesters", program_code, level_code)
+
+    async def cache_catalog_courses(
+        self,
+        faculty_code: str,
+        program_code: str,
+        level_code: str,
+        semester_code: str,
+        courses: list[dict],
+        ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS,
+    ) -> None:
+        await self._cache_catalog_value(
+            "courses",
+            courses,
+            ttl_seconds,
+            faculty_code,
+            program_code,
+            level_code,
+            semester_code,
+        )
+
+    async def get_catalog_courses(
+        self,
+        faculty_code: str,
+        program_code: str,
+        level_code: str,
+        semester_code: str,
+    ) -> list[dict] | None:
+        return await self._get_catalog_value(
+            "courses",
+            faculty_code,
+            program_code,
+            level_code,
+            semester_code,
+        )
+
+    async def invalidate_catalog_courses(
+        self,
+        faculty_code: str,
+        program_code: str,
+        level_code: str,
+        semester_code: str,
+    ) -> None:
+        await self._invalidate_catalog_value(
+            "courses",
+            faculty_code,
+            program_code,
+            level_code,
+            semester_code,
+        )
+
+    async def invalidate_catalog_cache(self) -> None:
+        for key in list(self._catalog_cache_keys):
+            await self._delete_key(key)
+            self._local_cache.pop(key, None)
+            self._catalog_cache_keys.discard(key)
+
     async def claim_analytics_event(
         self, user_id: int, event_type: str, ttl_seconds: int = 24 * 60 * 60
     ) -> bool:
@@ -295,3 +414,45 @@ class InteractiveStateStore:
 
     def _set_local(self, key: str, value, ttl_seconds: int) -> None:
         self._local_cache[key] = (time.monotonic() + ttl_seconds, value)
+
+    def _catalog_key(self, scope: str, *parts: str) -> str:
+        suffix = ":".join(parts)
+        return f"catalog:{scope}" if not suffix else f"catalog:{scope}:{suffix}"
+
+    async def _cache_catalog_value(
+        self,
+        scope: str,
+        value,
+        ttl_seconds: int,
+        *parts: str,
+    ) -> None:
+        key = self._catalog_key(scope, *parts)
+        await self.redis_client.set(
+            key,
+            json.dumps(value),
+            ex=ttl_seconds,
+        )
+        self._set_local(key, value, ttl_seconds)
+        self._catalog_cache_keys.add(key)
+
+    async def _get_catalog_value(self, scope: str, *parts: str):
+        key = self._catalog_key(scope, *parts)
+        cached = self._get_local(key)
+        if cached is not None:
+            return cached
+
+        payload = await self.redis_client.get(key)
+        if not payload:
+            return None
+
+        await self._refresh_expiry(key, CATALOG_LOOKUP_TTL_SECONDS)
+        value = json.loads(payload)
+        self._set_local(key, value, CATALOG_LOOKUP_TTL_SECONDS)
+        self._catalog_cache_keys.add(key)
+        return value
+
+    async def _invalidate_catalog_value(self, scope: str, *parts: str) -> None:
+        key = self._catalog_key(scope, *parts)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
+        self._catalog_cache_keys.discard(key)

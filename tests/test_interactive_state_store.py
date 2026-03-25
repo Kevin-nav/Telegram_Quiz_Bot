@@ -112,3 +112,39 @@ async def test_adaptive_update_lock_rejects_duplicate_acquire():
 
     await store.release_adaptive_update_lock(42, "calculus", token)
     assert await store.acquire_adaptive_update_lock(42, "calculus") is not None
+
+
+@pytest.mark.asyncio
+async def test_catalog_cache_helpers_round_trip_and_invalidation():
+    store = InteractiveStateStore(FakeRedis())
+
+    faculties = [{"code": "engineering", "name": "Faculty of Engineering"}]
+    programs = [{"code": "electrical-and-electronics-engineering", "name": "Electrical and Electronics Engineering"}]
+
+    await store.cache_catalog_faculties(faculties)
+    await store.cache_catalog_programs("engineering", programs)
+
+    assert await store.get_catalog_faculties() == faculties
+    assert await store.get_catalog_programs("engineering") == programs
+
+    await store.invalidate_catalog_faculties()
+    await store.invalidate_catalog_programs("engineering")
+
+    assert await store.get_catalog_faculties() is None
+    assert await store.get_catalog_programs("engineering") is None
+
+
+@pytest.mark.asyncio
+async def test_catalog_cache_bulk_invalidation_clears_all_tracked_keys():
+    store = InteractiveStateStore(FakeRedis())
+
+    await store.cache_catalog_faculties([{"code": "engineering", "name": "Faculty of Engineering"}])
+    await store.cache_catalog_programs(
+        "engineering",
+        [{"code": "electrical-and-electronics-engineering", "name": "Electrical and Electronics Engineering"}],
+    )
+
+    await store.invalidate_catalog_cache()
+
+    assert await store.get_catalog_faculties() is None
+    assert await store.get_catalog_programs("engineering") is None
