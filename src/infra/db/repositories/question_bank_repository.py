@@ -64,6 +64,24 @@ class QuestionBankRepository:
         async with self.session_factory() as session:
             return await self._get_question_by_key(session, question_key)
 
+    async def list_questions(
+        self,
+        *,
+        course_id: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[QuestionBank]:
+        async with self.session_factory() as session:
+            stmt = select(QuestionBank)
+            if course_id is not None:
+                stmt = stmt.where(QuestionBank.course_id == course_id)
+            if status is not None:
+                stmt = stmt.where(QuestionBank.status == status)
+            stmt = stmt.order_by(QuestionBank.id.desc()).limit(limit).offset(offset)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
     async def update_question_status(
         self,
         question_key: str,
@@ -88,6 +106,22 @@ class QuestionBankRepository:
                 "explanation_asset_url": explanation_asset_url,
                 "variant_count": variant_count,
             }
+            self._apply_updates(
+                question,
+                {key: value for key, value in updates.items() if value is not None},
+            )
+            await session.commit()
+            await session.refresh(question)
+            return question
+
+    async def update_question(
+        self, question_key: str, updates: dict
+    ) -> QuestionBank | None:
+        async with self.session_factory() as session:
+            question = await self._get_question_by_key(session, question_key)
+            if question is None:
+                return None
+
             self._apply_updates(
                 question,
                 {key: value for key, value in updates.items() if value is not None},

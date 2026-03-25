@@ -109,3 +109,57 @@ class CatalogRepository:
             stmt = stmt.order_by(CatalogCourse.name.asc())
             result = await session.execute(stmt)
             return list(result.scalars().unique().all())
+
+    async def list_offerings(
+        self,
+        *,
+        faculty_code: str | None = None,
+        program_code: str | None = None,
+        level_code: str | None = None,
+        semester_code: str | None = None,
+    ) -> list[ProgramCourseOffering]:
+        async with self.session_factory() as session:
+            stmt = select(ProgramCourseOffering).join(
+                CatalogProgram,
+                CatalogProgram.code == ProgramCourseOffering.program_code,
+            )
+            if faculty_code is not None:
+                stmt = stmt.where(CatalogProgram.faculty_code == faculty_code)
+            if program_code is not None:
+                stmt = stmt.where(ProgramCourseOffering.program_code == program_code)
+            if level_code is not None:
+                stmt = stmt.where(ProgramCourseOffering.level_code == level_code)
+            if semester_code is not None:
+                stmt = stmt.where(ProgramCourseOffering.semester_code == semester_code)
+
+            stmt = stmt.order_by(
+                ProgramCourseOffering.program_code.asc(),
+                ProgramCourseOffering.level_code.asc(),
+                ProgramCourseOffering.semester_code.asc(),
+                ProgramCourseOffering.course_code.asc(),
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().unique().all())
+
+    async def upsert_offering(self, payload: dict) -> ProgramCourseOffering:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(ProgramCourseOffering).where(
+                    ProgramCourseOffering.program_code == payload["program_code"],
+                    ProgramCourseOffering.level_code == payload["level_code"],
+                    ProgramCourseOffering.semester_code == payload["semester_code"],
+                    ProgramCourseOffering.course_code == payload["course_code"],
+                )
+            )
+            offering = result.scalar_one_or_none()
+            if offering is None:
+                offering = ProgramCourseOffering(**payload)
+                session.add(offering)
+            else:
+                for key, value in payload.items():
+                    if key != "id" and value is not None:
+                        setattr(offering, key, value)
+
+            await session.commit()
+            await session.refresh(offering)
+            return offering

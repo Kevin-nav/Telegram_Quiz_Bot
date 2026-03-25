@@ -2,9 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FormEvent } from "react";
-import { startTransition, useState } from "react";
+import { Suspense, startTransition, useState } from "react";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [adminUserId, setAdminUserId] = useState("101");
@@ -75,5 +75,13 @@ export default function LoginPage() {
         </p>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="login-screen" />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

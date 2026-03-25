@@ -1,11 +1,15 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 const sections = [
-  { href: "#overview", label: "Overview" },
-  { href: "#queue", label: "Queue" },
-  { href: "#catalog", label: "Catalog" },
-  { href: "#audit", label: "Audit" },
+  { href: "/", label: "Overview" },
+  { href: "/staff", label: "Staff" },
+  { href: "/catalog", label: "Catalog" },
+  { href: "/questions", label: "Questions" },
+  { href: "/audit", label: "Audit" },
 ];
 
 export function AdminShell({
@@ -13,6 +17,8 @@ export function AdminShell({
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const pathname = usePathname();
+
   return (
     <div className="app-shell">
       <div className="shell-frame">
@@ -23,12 +29,19 @@ export function AdminShell({
             bank.
           </p>
           <nav className="rail-nav" aria-label="Dashboard sections">
-            {sections.map((section) => (
-              <Link href={section.href} key={section.href}>
-                <span>{section.label}</span>
-                <span aria-hidden="true">↗</span>
-              </Link>
-            ))}
+            {sections.map((section) => {
+              const isActive = pathname === section.href;
+              return (
+                <Link
+                  aria-current={isActive ? "page" : undefined}
+                  href={section.href}
+                  key={section.href}
+                >
+                  <span>{section.label}</span>
+                  <span aria-hidden="true">{isActive ? "Current" : "Open"}</span>
+                </Link>
+              );
+            })}
           </nav>
           <div className="rail-meta">
             <span>Operations status</span>

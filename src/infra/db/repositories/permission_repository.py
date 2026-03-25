@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from sqlalchemy import delete
 from sqlalchemy import select
 
 from src.infra.db.models.permission import Permission
@@ -46,3 +49,36 @@ class PermissionRepository:
         direct_codes = await self.list_direct_permission_codes_for_user(staff_user_id)
         role_codes = await self.list_role_permission_codes_for_user(staff_user_id)
         return sorted(set(direct_codes) | set(role_codes))
+
+    async def replace_direct_permissions_for_user(
+        self, staff_user_id: int, permission_codes: Sequence[str]
+    ) -> list[str]:
+        unique_codes = list(dict.fromkeys(permission_codes))
+
+        async with self.session_factory() as session:
+            await session.execute(
+                delete(StaffUserPermission).where(
+                    StaffUserPermission.staff_user_id == staff_user_id
+                )
+            )
+            if unique_codes:
+                result = await session.execute(
+                    select(Permission).where(Permission.code.in_(unique_codes))
+                )
+                permissions = list(result.scalars().all())
+                permission_map = {permission.code: permission for permission in permissions}
+                session.add_all(
+                    [
+                        StaffUserPermission(
+                            staff_user_id=staff_user_id,
+                            permission_id=permission_map[code].id,
+                        )
+                        for code in unique_codes
+                        if code in permission_map
+                    ]
+                )
+                await session.commit()
+                return [code for code in unique_codes if code in permission_map]
+
+            await session.commit()
+            return []

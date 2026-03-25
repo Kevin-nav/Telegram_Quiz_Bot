@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from src.infra.db.models.audit_log import AuditLog
 from src.infra.db.session import AsyncSessionLocal
 
@@ -31,3 +33,18 @@ class AuditLogRepository:
             await session.commit()
             await session.refresh(log_entry)
             return log_entry
+
+    async def list_audit_logs(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[AuditLog]:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(AuditLog)
+                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            return list(result.scalars().all())
