@@ -85,3 +85,30 @@ async def test_analytics_claim_deduplicates_same_event():
 
     assert await store.claim_analytics_event(42, "User Registered") is True
     assert await store.claim_analytics_event(42, "User Registered") is False
+
+
+@pytest.mark.asyncio
+async def test_adaptive_snapshot_round_trip_and_invalidation():
+    store = InteractiveStateStore(FakeRedis())
+
+    await store.set_adaptive_snapshot(42, "calculus", {"overall_skill": 2.7})
+    loaded = await store.get_adaptive_snapshot(42, "calculus")
+    await store.invalidate_adaptive_snapshot(42, "calculus")
+    cleared = await store.get_adaptive_snapshot(42, "calculus")
+
+    assert loaded == {"overall_skill": 2.7}
+    assert cleared is None
+
+
+@pytest.mark.asyncio
+async def test_adaptive_update_lock_rejects_duplicate_acquire():
+    store = InteractiveStateStore(FakeRedis())
+
+    token = await store.acquire_adaptive_update_lock(42, "calculus")
+    duplicate = await store.acquire_adaptive_update_lock(42, "calculus")
+
+    assert token is not None
+    assert duplicate is None
+
+    await store.release_adaptive_update_lock(42, "calculus", token)
+    assert await store.acquire_adaptive_update_lock(42, "calculus") is not None

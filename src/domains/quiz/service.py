@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from telegram import PollAnswer
 
+from src.domains.adaptive.arrangement import (
+    arrange_options_latex,
+    arrange_options_non_latex,
+)
+from src.domains.adaptive.models import AdaptiveQuestionProfile
+from src.domains.adaptive.service import AdaptiveLearningService
+from src.domains.adaptive.timing import calculate_question_time_limit
 from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
 from src.infra.redis.state_store import InteractiveStateStore
@@ -23,9 +31,14 @@ class QuizSessionService:
         self,
         state_store: InteractiveStateStore | None = None,
         question_bank_repository: QuestionBankRepository | None = None,
+        adaptive_learning_service: AdaptiveLearningService | None = None,
     ):
         self.state_store = state_store
         self.question_bank_repository = question_bank_repository or QuestionBankRepository()
+        self.adaptive_learning_service = (
+            adaptive_learning_service
+            or AdaptiveLearningService(question_bank_repository=self.question_bank_repository)
+        )
 
     def set_state_store(self, state_store: InteractiveStateStore) -> None:
         self.state_store = state_store
@@ -43,7 +56,12 @@ class QuizSessionService:
     ) -> QuizSessionState:
         self._require_state_store()
 
-        questions = await self._select_questions(course_id, course_name, question_count)
+        questions = await self._select_questions(
+            user_id=user_id,
+            course_id=course_id,
+            course_name=course_name,
+            question_count=question_count,
+        )
         session = QuizSessionState(
             session_id=str(uuid4()),
             user_id=user_id,
@@ -131,6 +149,11 @@ class QuizSessionService:
                 selected_index = selected_option_ids[0]
                 if 0 <= selected_index < len(question.options):
                     selected_option_text = question.options[selected_index]
+            time_taken_seconds = None
+            if question.presented_at is not None:
+                time_taken_seconds = (
+                    datetime.now(UTC) - question.presented_at
+                ).total_seconds()
             if is_correct:
                 session.score += 1
 
@@ -152,13 +175,26 @@ class QuizSessionService:
                         "is_correct": is_correct,
                         "arrangement_hash": question.arrangement_hash,
                         "config_index": question.config_index,
-                        "time_taken_seconds": None,
-                        "time_allocated_seconds": None,
+                        "time_taken_seconds": time_taken_seconds,
+                        "time_allocated_seconds": question.time_allocated_seconds,
                         "metadata": {
                             "topic_id": question.topic_id,
+                            "scaled_score": question.scaled_score,
+                            "band": question.band,
+                            "cognitive_level": question.cognitive_level,
+                            "processing_complexity": question.processing_complexity,
+                            "distractor_complexity": question.distractor_complexity,
+                            "note_reference": question.note_reference,
                             "has_latex": question.has_latex,
                             "question_asset_url": question.question_asset_url,
                             "explanation_asset_url": question.explanation_asset_url,
+                            "presented_at": (
+                                question.presented_at.isoformat()
+                                if question.presented_at is not None
+                                else None
+                            ),
+                            "selected_option_text": selected_option_text,
+                            "selected_option_ids": selected_option_ids,
                         },
                     }
                 )
@@ -212,6 +248,13 @@ class QuizSessionService:
         if question is None:
             return
 
+        if question.presented_at is None:
+            question.presented_at = datetime.now(UTC)
+        if question.time_allocated_seconds is None:
+            question.time_allocated_seconds = self._calculate_time_allocated_seconds(
+                question
+            )
+
         message = await bot.send_poll(
             chat_id=session.chat_id,
             question=question.prompt,
@@ -233,56 +276,59 @@ class QuizSessionService:
         )
 
     async def _select_questions(
-        self, course_id: str, course_name: str, question_count: int
+        self,
+        *,
+        user_id: int | None = None,
+        course_id: str,
+        course_name: str,
+        question_count: int,
     ) -> list[QuizQuestion]:
-        cached_questions = await self.state_store.get_question_bank(course_id)
-        if cached_questions is None or len(cached_questions) < question_count:
-            cached_questions = await self._load_ready_questions(course_id)
-            if cached_questions:
-                await self.state_store.cache_question_bank(course_id, cached_questions)
-            else:
-                cached_questions = self._build_placeholder_questions(
-                    course_name, max(question_count, 30)
-                )
-                await self.state_store.cache_question_bank(course_id, cached_questions)
-        return cached_questions[:question_count]
-
-    async def _load_ready_questions(self, course_id: str) -> list[QuizQuestion]:
         try:
-            ready_questions = await self.question_bank_repository.list_ready_questions(
-                course_id
+            selection = await self.adaptive_learning_service.select_questions(
+                user_id=user_id or 0,
+                course_id=course_id,
+                quiz_length=question_count,
             )
         except Exception:
             logger.exception(
-                "Failed to load ready questions for course_id=%s; falling back to placeholders.",
+                "Failed to load adaptive questions for course_id=%s; falling back to placeholders.",
                 course_id,
             )
-            return []
-        quiz_questions: list[QuizQuestion] = []
+            return self._build_placeholder_questions(course_name, max(question_count, 30))[
+                :question_count
+            ]
 
-        for question in ready_questions:
-            if question.correct_option_text not in question.options:
+        question_rows_by_key = {
+            row.question_key: row for row in selection.question_rows if hasattr(row, "question_key")
+        }
+        quiz_questions: list[QuizQuestion] = []
+        for selected_question in selection.selected_questions:
+            question_row = question_rows_by_key.get(selected_question.question_id)
+            if question_row is None:
+                continue
+            try:
+                quiz_question = self._build_quiz_question(
+                    question_row,
+                    selected_question,
+                )
+            except ValueError:
                 logger.warning(
-                    "Skipping question %s because correct_option_text is not in options.",
-                    question.question_key,
+                    "Skipping malformed canonical question %s during adaptive selection.",
+                    selected_question.question_id,
                 )
                 continue
+            quiz_questions.append(quiz_question)
 
-            quiz_questions.append(
-                QuizQuestion(
-                    question_id=question.question_key,
-                    source_question_id=question.id,
-                    prompt=question.question_text,
-                    options=list(question.options),
-                    correct_option_id=question.options.index(question.correct_option_text),
-                    explanation=question.short_explanation,
-                    topic_id=question.topic_id,
-                    has_latex=question.has_latex,
-                    explanation_asset_url=question.explanation_asset_url,
-                )
-            )
+        if quiz_questions:
+            return quiz_questions[:question_count]
 
-        return quiz_questions
+        logger.warning(
+            "Adaptive selector returned no canonical questions for course_id=%s; falling back to placeholders.",
+            course_id,
+        )
+        return self._build_placeholder_questions(course_name, max(question_count, 30))[
+            :question_count
+        ]
 
     def _build_placeholder_questions(
         self, course_name: str, question_count: int
@@ -303,9 +349,64 @@ class QuizSessionService:
                     options=options,
                     correct_option_id=correct_option,
                     explanation="Placeholder quiz content until the adaptive selector is connected.",
+                    topic_id=f"{course_name.lower().replace(' ', '-')}-topic",
+                    scaled_score=1.0,
+                    band=1,
+                    time_allocated_seconds=45,
                 )
             )
         return questions
+
+    def _build_quiz_question(
+        self,
+        question_row,
+        selected_question: AdaptiveQuestionProfile,
+    ) -> QuizQuestion:
+        if question_row.correct_option_text not in question_row.options:
+            raise ValueError(
+                f"Question {question_row.question_key} has an invalid correct option."
+            )
+
+        options = list(question_row.options)
+        correct_option_id = options.index(question_row.correct_option_text)
+        arrangement_hash = None
+        config_index = selected_question.config_index
+
+        if question_row.has_latex:
+            if config_index is None:
+                config_index = arrange_options_latex(selected_question)
+        else:
+            options, arrangement_hash = arrange_options_non_latex(question_row)
+            correct_option_id = options.index(question_row.correct_option_text)
+
+        return QuizQuestion(
+            question_id=question_row.question_key,
+            source_question_id=question_row.id,
+            prompt=question_row.question_text,
+            options=options,
+            correct_option_id=correct_option_id,
+            explanation=question_row.short_explanation,
+            topic_id=question_row.topic_id,
+            scaled_score=selected_question.scaled_score,
+            band=selected_question.band,
+            cognitive_level=selected_question.cognitive_level,
+            processing_complexity=selected_question.processing_complexity,
+            distractor_complexity=selected_question.distractor_complexity,
+            note_reference=selected_question.note_reference,
+            has_latex=question_row.has_latex,
+            arrangement_hash=arrangement_hash,
+            config_index=config_index,
+            question_asset_url=getattr(question_row, "question_asset_url", None),
+            explanation_asset_url=question_row.explanation_asset_url,
+            time_allocated_seconds=self._calculate_time_allocated_seconds(
+                selected_question
+            ),
+        )
+
+    def _calculate_time_allocated_seconds(
+        self, question: AdaptiveQuestionProfile
+    ) -> int:
+        return calculate_question_time_limit(question)
 
     def _require_state_store(self) -> None:
         if self.state_store is None:

@@ -1,3 +1,5 @@
+from sqlalchemy import select
+
 from src.infra.db.models.question_attempt import QuestionAttempt
 from src.infra.db.session import AsyncSessionLocal
 
@@ -13,3 +15,24 @@ class QuestionAttemptRepository:
             await session.commit()
             await session.refresh(attempt)
             return attempt
+
+    async def list_attempts_for_question(
+        self,
+        *,
+        user_id: int,
+        question_id: int,
+        limit: int | None = None,
+    ) -> list[QuestionAttempt]:
+        async with self.session_factory() as session:
+            statement = (
+                select(QuestionAttempt)
+                .where(
+                    QuestionAttempt.user_id == user_id,
+                    QuestionAttempt.question_id == question_id,
+                )
+                .order_by(QuestionAttempt.created_at.asc(), QuestionAttempt.id.asc())
+            )
+            if limit is not None:
+                statement = statement.limit(limit)
+            result = await session.execute(statement)
+            return list(result.scalars().all())

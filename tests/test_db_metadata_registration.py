@@ -7,3 +7,5 @@ def test_canonical_database_import_registers_question_bank_tables():
     assert "question_asset_variants" in table_names
     assert "student_course_state" in table_names
     assert "question_attempts" in table_names
+    assert "student_question_srs" in table_names
+    assert "adaptive_review_flags" in table_names

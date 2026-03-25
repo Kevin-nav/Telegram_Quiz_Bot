@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
 from src.infra.redis.keys import (
     active_quiz_key,
+    adaptive_snapshot_key,
+    adaptive_update_lock_key,
     analytics_dedupe_key,
     poll_map_key,
     question_bank_cache_key,
@@ -23,6 +25,7 @@ ACTIVE_QUIZ_TTL_SECONDS = 24 * 60 * 60
 QUIZ_SESSION_TTL_SECONDS = 24 * 60 * 60
 POLL_MAP_TTL_SECONDS = 60 * 60
 LOCK_TTL_SECONDS = 15
+ADAPTIVE_SNAPSHOT_TTL_SECONDS = 10 * 60
 
 
 @dataclass(slots=True)
@@ -184,6 +187,40 @@ class InteractiveStateStore:
         self._set_local(question_bank_cache_key(course_id), questions, 3600)
         return questions
 
+    async def get_adaptive_snapshot(self, user_id: int, course_id: str) -> dict | None:
+        key = adaptive_snapshot_key(user_id, course_id)
+        cached = self._get_local(key)
+        if cached is not None:
+            return cached
+
+        payload = await self.redis_client.get(key)
+        if not payload:
+            return None
+        await self._refresh_expiry(key, ADAPTIVE_SNAPSHOT_TTL_SECONDS)
+        snapshot = json.loads(payload)
+        self._set_local(key, snapshot, ADAPTIVE_SNAPSHOT_TTL_SECONDS)
+        return snapshot
+
+    async def set_adaptive_snapshot(
+        self,
+        user_id: int,
+        course_id: str,
+        snapshot: dict,
+        ttl_seconds: int = ADAPTIVE_SNAPSHOT_TTL_SECONDS,
+    ) -> None:
+        key = adaptive_snapshot_key(user_id, course_id)
+        await self.redis_client.set(
+            key,
+            json.dumps(snapshot),
+            ex=ttl_seconds,
+        )
+        self._set_local(key, snapshot, ttl_seconds)
+
+    async def invalidate_adaptive_snapshot(self, user_id: int, course_id: str) -> None:
+        key = adaptive_snapshot_key(user_id, course_id)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
+
     async def claim_analytics_event(
         self, user_id: int, event_type: str, ttl_seconds: int = 24 * 60 * 60
     ) -> bool:
@@ -206,6 +243,27 @@ class InteractiveStateStore:
         if not acquired:
             return None
         return token
+
+    async def acquire_adaptive_update_lock(self, user_id: int, course_id: str) -> str | None:
+        token = str(uuid.uuid4())
+        acquired = await self.redis_client.set(
+            adaptive_update_lock_key(user_id, course_id),
+            token,
+            ex=LOCK_TTL_SECONDS,
+            nx=True,
+        )
+        if not acquired:
+            return None
+        return token
+
+    async def release_adaptive_update_lock(
+        self, user_id: int, course_id: str, token: str
+    ) -> None:
+        key = adaptive_update_lock_key(user_id, course_id)
+        current_token = await self.redis_client.get(key)
+        if current_token != token:
+            return
+        await self._delete_key(key)
 
     async def release_quiz_lock(self, session_id: str, token: str) -> None:
         key = quiz_session_lock_key(session_id)

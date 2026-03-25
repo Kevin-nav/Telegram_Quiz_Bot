@@ -30,6 +30,18 @@ def question_bank_cache_key(course_id: str) -> str:
     return f"question-bank:{course_id}"
 
 
+def adaptive_snapshot_key(user_id: int, course_id: str) -> str:
+    return f"adaptive-snapshot:{user_id}:{course_id}"
+
+
+def adaptive_update_lock_key(user_id: int, course_id: str) -> str:
+    return f"lock:adaptive-update:{user_id}:{course_id}"
+
+
+def adaptive_attempt_key(attempt_id: str) -> str:
+    return f"idempotency:adaptive-attempt:{attempt_id}"
+
+
 def analytics_dedupe_key(user_id: int, event_type: str) -> str:
     normalized = event_type.lower().replace(" ", "-")
     return f"analytics-dedupe:{normalized}:{user_id}"

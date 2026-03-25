@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 
 
 @dataclass(slots=True)
@@ -12,9 +13,17 @@ class QuizQuestion:
     source_question_id: int | None = None
     explanation: str | None = None
     topic_id: str | None = None
+    scaled_score: float | None = None
+    band: int | None = None
+    cognitive_level: str | None = None
+    processing_complexity: float | None = None
+    distractor_complexity: float | None = None
+    note_reference: float | None = None
     has_latex: bool = False
     arrangement_hash: str | None = None
     config_index: int | None = None
+    time_allocated_seconds: int | None = None
+    presented_at: datetime | None = None
     question_asset_url: str | None = None
     explanation_asset_url: str | None = None
 
@@ -28,15 +37,30 @@ class QuizQuestion:
             correct_option_id=payload["correct_option_id"],
             explanation=payload.get("explanation"),
             topic_id=payload.get("topic_id"),
+            scaled_score=payload.get("scaled_score"),
+            band=payload.get("band"),
+            cognitive_level=payload.get("cognitive_level"),
+            processing_complexity=payload.get("processing_complexity"),
+            distractor_complexity=payload.get("distractor_complexity"),
+            note_reference=payload.get("note_reference"),
             has_latex=payload.get("has_latex", False),
             arrangement_hash=payload.get("arrangement_hash"),
             config_index=payload.get("config_index"),
+            time_allocated_seconds=payload.get("time_allocated_seconds"),
+            presented_at=(
+                datetime.fromisoformat(payload["presented_at"])
+                if payload.get("presented_at")
+                else None
+            ),
             question_asset_url=payload.get("question_asset_url"),
             explanation_asset_url=payload.get("explanation_asset_url"),
         )
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        payload = asdict(self)
+        if self.presented_at is not None:
+            payload["presented_at"] = self.presented_at.isoformat()
+        return payload
 
 
 @dataclass(slots=True)
