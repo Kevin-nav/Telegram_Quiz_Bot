@@ -1,4 +1,5 @@
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from src.bot.callbacks import parse_callback
@@ -40,6 +41,7 @@ def _build_home_profile(user) -> dict[str, str]:
             if getattr(user, "level_code", None)
             else "Not set"
         ),
+        "semester_name": _humanize(getattr(user, "semester_code", None), "Not set"),
     }
 
 
@@ -84,6 +86,44 @@ def _get_schedule_background(context: ContextTypes.DEFAULT_TYPE):
     return scheduler.schedule_coroutine
 
 
+def _message_id(query) -> int | None:
+    return getattr(getattr(query, "message", None), "message_id", None)
+
+
+def _remember_active_message(context: ContextTypes.DEFAULT_TYPE, query) -> None:
+    message_id = _message_id(query)
+    if message_id is not None:
+        context.user_data[ACTIVE_INTERACTIVE_MESSAGE_ID_KEY] = message_id
+
+
+async def _safe_clear_reply_markup(query) -> None:
+    clear_method = getattr(query, "edit_message_reply_markup", None)
+    if clear_method is None:
+        return
+    try:
+        await clear_method(reply_markup=None)
+    except BadRequest:
+        return
+
+
+async def _reject_stale_callback(query, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    active_message_id = context.user_data.get(ACTIVE_INTERACTIVE_MESSAGE_ID_KEY)
+    callback_message_id = _message_id(query)
+    if (
+        active_message_id is None
+        or callback_message_id is None
+        or active_message_id == callback_message_id
+    ):
+        return False
+
+    await query.answer(
+        text="This menu is out of date. Use the latest message.",
+        show_alert=False,
+    )
+    await _safe_clear_reply_markup(query)
+    return True
+
+
 def _course_id(user) -> str:
     return getattr(user, "preferred_course_code", None) or "general-study"
 
@@ -93,6 +133,7 @@ def _course_name(user) -> str:
 
 
 QUIZ_SELECTION_KEY = "quiz_selection"
+ACTIVE_INTERACTIVE_MESSAGE_ID_KEY = "active_interactive_message_id"
 
 
 def _initial_setup_state() -> dict[str, str | None]:
@@ -123,6 +164,7 @@ async def _render_home(query, context: ContextTypes.DEFAULT_TYPE, user) -> None:
         text=build_home_message(profile),
         reply_markup=build_home_keyboard(home["buttons"]),
     )
+    _remember_active_message(context, query)
 
 
 async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -138,6 +180,7 @@ async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> N
             include_cancel=True,
         ),
     )
+    _remember_active_message(context, query)
 
 
 def _user_has_complete_profile(user) -> bool:
@@ -174,6 +217,8 @@ async def handle_home_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    if await _reject_stale_callback(query, context):
+        return
     await query.answer()
 
     parts = parse_callback(query.data)
@@ -198,6 +243,7 @@ async def handle_home_callback(
                         )["buttons"]
                     ),
                 )
+                _remember_active_message(context, query)
                 return
 
             courses = _get_profile_courses(context, user)
@@ -211,6 +257,7 @@ async def handle_home_callback(
                         )["buttons"]
                     ),
                 )
+                _remember_active_message(context, query)
                 return
 
             await query.edit_message_text(
@@ -224,6 +271,7 @@ async def handle_home_callback(
                 ),
                 reply_markup=build_quiz_course_keyboard(courses),
             )
+            _remember_active_message(context, query)
             return
 
         if action == "back":
@@ -253,6 +301,7 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)
             return
 
         if action == "performance":
@@ -265,6 +314,7 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)
             return
 
         if action == "help":
@@ -277,6 +327,7 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)
             return
 
     if parts[0] == "quiz" and len(parts) >= 3 and parts[1] == "course":
@@ -299,6 +350,7 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)
             return
 
         context.user_data[QUIZ_SELECTION_KEY] = {
@@ -311,6 +363,7 @@ async def handle_home_callback(
                 quiz_entry_service.QUESTION_COUNTS
             ),
         )
+        _remember_active_message(context, query)
         return
 
     if parts[0] == "quiz" and len(parts) >= 3 and parts[1] == "length":
@@ -326,6 +379,7 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)
             return
 
         await query.edit_message_text(
@@ -340,6 +394,7 @@ async def handle_home_callback(
                 )["buttons"]
             ),
         )
+        _remember_active_message(context, query)
         chat = getattr(query, "message", None)
         chat_id = getattr(getattr(chat, "chat", None), "id", None)
         if chat_id is None:
@@ -368,3 +423,4 @@ async def handle_home_callback(
                     )["buttons"]
                 ),
             )
+            _remember_active_message(context, query)

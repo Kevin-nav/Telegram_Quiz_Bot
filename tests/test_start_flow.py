@@ -39,6 +39,7 @@ class FakeMessage:
 
     async def reply_text(self, text, reply_markup=None):
         self.calls.append({"text": text, "reply_markup": reply_markup})
+        return SimpleNamespace(message_id=len(self.calls))
 
 
 @pytest.mark.asyncio
@@ -73,7 +74,8 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
                 "state_store": state_store,
                 "background_scheduler": scheduler,
             }
-        )
+        ),
+        user_data={},
     )
     update = SimpleNamespace(effective_user=user, message=message)
 
@@ -83,6 +85,7 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
     assert "set up your study profile" in message.calls[0]["text"].lower()
     assert state_store.saved_profiles
     assert len(scheduler.calls) == 2
+    assert context.user_data["active_interactive_message_id"] == 1
 
 
 @pytest.mark.asyncio
@@ -126,7 +129,8 @@ async def test_start_routes_returning_user_to_home(monkeypatch):
                 "state_store": FakeStateStore(stored_user),
                 "background_scheduler": scheduler,
             }
-        )
+        ),
+        user_data={},
     )
     update = SimpleNamespace(effective_user=user, message=message)
 
@@ -134,7 +138,9 @@ async def test_start_routes_returning_user_to_home(monkeypatch):
 
     assert message.calls
     assert "study home" in message.calls[0]["text"].lower()
+    assert "semester: first" in message.calls[0]["text"].lower()
     assert len(scheduler.calls) == 2
+    assert context.user_data["active_interactive_message_id"] == 1
 
 
 @pytest.mark.asyncio
@@ -166,7 +172,8 @@ async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
             bot_data={
                 "state_store": FakeStateStore(),
             }
-        )
+        ),
+        user_data={},
     )
     update = SimpleNamespace(effective_user=user, message=message)
 

@@ -13,8 +13,15 @@ def build_home_message(profile: Mapping[str, str | None]) -> str:
     faculty = profile.get("faculty_name") or "Not set"
     program = profile.get("program_name") or "Not set"
     level = profile.get("level_name") or "Not set"
+    semester = profile.get("semester_name") or "Not set"
 
-    return f"Study Home\n\nFaculty: {faculty}\nProgram: {program}\nLevel: {level}"
+    return (
+        "Study Home\n\n"
+        f"Faculty: {faculty}\n"
+        f"Program: {program}\n"
+        f"Level: {level}\n"
+        f"Semester: {semester}"
+    )
 
 
 def build_help_message() -> str:

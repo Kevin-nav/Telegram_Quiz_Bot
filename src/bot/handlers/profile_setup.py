@@ -13,6 +13,7 @@ from src.tasks.arq_client import enqueue_persist_user_profile
 SETUP_ORDER = ["faculty", "program", "level"]
 STATE_KEY = "profile_setup_state"
 LABEL_KEY = "profile_setup_labels"
+ACTIVE_INTERACTIVE_MESSAGE_ID_KEY = "active_interactive_message_id"
 
 
 def _humanize(code: str | None) -> str:
@@ -118,6 +119,46 @@ async def _safe_edit_message_text(query, *, text: str, reply_markup=None) -> Non
         raise
 
 
+async def _safe_clear_reply_markup(query) -> None:
+    clear_method = getattr(query, "edit_message_reply_markup", None)
+    if clear_method is None:
+        return
+    try:
+        await clear_method(reply_markup=None)
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            return
+        raise
+
+
+def _message_id(query) -> int | None:
+    return getattr(getattr(query, "message", None), "message_id", None)
+
+
+def _remember_active_message(context: ContextTypes.DEFAULT_TYPE, query) -> None:
+    message_id = _message_id(query)
+    if message_id is not None:
+        context.user_data[ACTIVE_INTERACTIVE_MESSAGE_ID_KEY] = message_id
+
+
+async def _reject_stale_callback(query, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    active_message_id = context.user_data.get(ACTIVE_INTERACTIVE_MESSAGE_ID_KEY)
+    callback_message_id = _message_id(query)
+    if (
+        active_message_id is None
+        or callback_message_id is None
+        or active_message_id == callback_message_id
+    ):
+        return False
+
+    await query.answer(
+        text="This setup menu is out of date. Use the latest message.",
+        show_alert=False,
+    )
+    await _safe_clear_reply_markup(query)
+    return True
+
+
 async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> None:
     state = context.user_data.setdefault(STATE_KEY, _initial_state())
     labels = context.user_data.setdefault(LABEL_KEY, _initial_labels())
@@ -132,6 +173,7 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
         include_cancel=True,
     )
     await _safe_edit_message_text(query, text=text, reply_markup=markup)
+    _remember_active_message(context, query)
 
 
 async def _complete_setup(
@@ -149,7 +191,7 @@ async def _complete_setup(
         faculty_code=state["faculty"],
         program_code=state["program"],
         level_code=state["level"],
-        semester_code=None,
+        semester_code="first",
         preferred_course_code=None,
         onboarding_completed=True,
     )
@@ -161,7 +203,7 @@ async def _complete_setup(
             "faculty_name": labels["faculty_name"],
             "program_name": labels["program_name"],
             "level_name": labels["level_name"],
-            "semester_name": None,
+            "semester_name": "First Semester",
             "course_name": None,
         },
         has_active_quiz=False,
@@ -173,6 +215,7 @@ async def _complete_setup(
         text=home["message"],
         reply_markup=build_home_keyboard(home["buttons"]),
     )
+    _remember_active_message(context, query)
     if scheduler is not None:
         scheduler.schedule_coroutine(
             enqueue_persist_user_profile(
@@ -194,6 +237,8 @@ async def handle_profile_setup_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     query = update.callback_query
+    if await _reject_stale_callback(query, context):
+        return
     await query.answer()
 
     parts = parse_callback(query.data)

@@ -40,16 +40,25 @@ class FakeQuizSessionService:
 
 
 class FakeQuery:
-    def __init__(self, data: str):
+    def __init__(self, data: str, *, message_id: int = 1):
         self.data = data
         self.calls = []
-        self.message = SimpleNamespace(chat=SimpleNamespace(id=77), chat_id=77)
+        self.answers = []
+        self.cleared_reply_markup = 0
+        self.message = SimpleNamespace(
+            chat=SimpleNamespace(id=77),
+            chat_id=77,
+            message_id=message_id,
+        )
 
-    async def answer(self):
-        return None
+    async def answer(self, text=None, show_alert=False):
+        self.answers.append({"text": text, "show_alert": show_alert})
 
     async def edit_message_text(self, text, reply_markup=None):
         self.calls.append({"text": text, "reply_markup": reply_markup})
+
+    async def edit_message_reply_markup(self, reply_markup=None):
+        self.cleared_reply_markup += 1
 
 
 def _make_user(**overrides):
@@ -187,3 +196,28 @@ async def test_study_settings_opens_faculty_setup():
     await handle_home_callback(update, context)
 
     assert "choose your faculty" in query.calls[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_stale_home_callback_is_rejected_and_keyboard_is_cleared():
+    user = _make_user()
+    query = FakeQuery("home:start_quiz", message_id=10)
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "catalog_service": FakeCatalogService(),
+            }
+        ),
+        user_data={"active_interactive_message_id": 99},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert query.answers[-1]["text"] == "This menu is out of date. Use the latest message."
+    assert query.cleared_reply_markup == 1
+    assert not query.calls

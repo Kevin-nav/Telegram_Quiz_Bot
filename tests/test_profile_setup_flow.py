@@ -31,16 +31,30 @@ class FakeProfileService:
         return SimpleNamespace()
 
 
+class FakeStateStore:
+    def __init__(self):
+        self.saved_profiles = []
+
+    async def set_user_profile(self, profile):
+        self.saved_profiles.append(profile)
+
+
 class FakeQuery:
     def __init__(self, data: str):
         self.data = data
         self.calls = []
+        self.answers = []
+        self.cleared_reply_markup = 0
+        self.message = SimpleNamespace(message_id=1)
 
-    async def answer(self):
-        return None
+    async def answer(self, text=None, show_alert=False):
+        self.answers.append({"text": text, "show_alert": show_alert})
 
     async def edit_message_text(self, text, reply_markup=None):
         self.calls.append({"text": text, "reply_markup": reply_markup})
+
+    async def edit_message_reply_markup(self, reply_markup=None):
+        self.cleared_reply_markup += 1
 
 
 @pytest.mark.asyncio
@@ -68,3 +82,34 @@ async def test_profile_setup_advances_from_faculty_to_program():
     await handle_profile_setup_callback(update, context)
 
     assert "Choose your program" in query.calls[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_profile_setup_completion_sets_first_semester_in_cached_profile():
+    query = FakeQuery("profile:start:setup")
+    state_store = FakeStateStore()
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "catalog_service": FakeCatalogService(),
+                "profile_service": FakeProfileService(),
+                "state_store": state_store,
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42, first_name="Kevin", full_name="Kevin Doe"),
+    )
+
+    await handle_profile_setup_callback(update, context)
+    query.data = "profile:faculty:engineering"
+    await handle_profile_setup_callback(update, context)
+    query.data = "profile:program:mechanical-engineering"
+    await handle_profile_setup_callback(update, context)
+    query.data = "profile:level:100"
+    await handle_profile_setup_callback(update, context)
+
+    assert state_store.saved_profiles[-1].semester_code == "first"
+    assert "First Semester" in query.calls[-1]["text"]

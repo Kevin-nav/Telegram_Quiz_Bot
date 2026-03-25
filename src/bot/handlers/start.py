@@ -14,6 +14,7 @@ from src.tasks.arq_client import (
 )
 
 logger = logging.getLogger(__name__)
+ACTIVE_INTERACTIVE_MESSAGE_ID_KEY = "active_interactive_message_id"
 
 
 def _humanize(code: str | None, fallback: str | None = None) -> str | None:
@@ -45,6 +46,7 @@ def _build_home_profile(user) -> dict[str, str | None]:
         "level_name": f"Level {getattr(user, 'level_code', None)}"
         if getattr(user, "level_code", None)
         else "Not set",
+        "semester_name": _humanize(getattr(user, "semester_code", None), "Not set"),
     }
 
 
@@ -83,7 +85,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         }
 
     if not getattr(user, "onboarding_completed", False):
-        await update.message.reply_text(
+        reply = await update.message.reply_text(
             build_welcome_message(telegram_user.first_name or telegram_user.full_name),
             reply_markup=build_welcome_keyboard(),
         )
@@ -92,10 +94,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             _build_home_profile(user),
             has_active_quiz=getattr(user, "has_active_quiz", False),
         )
-        await update.message.reply_text(
+        reply = await update.message.reply_text(
             build_home_message(_build_home_profile(user)),
             reply_markup=build_home_keyboard(home["buttons"]),
         )
+    message_id = getattr(reply, "message_id", None)
+    if message_id is not None and hasattr(context, "user_data"):
+        context.user_data[ACTIVE_INTERACTIVE_MESSAGE_ID_KEY] = message_id
 
     scheduler = _get_background_scheduler(context)
     if scheduler is None:
