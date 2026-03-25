@@ -50,7 +50,7 @@ def test_electrical_engineering_level_200_first_semester_courses_use_canonical_s
             "semester_code": "first",
         },
         {
-            "code": "programming-in-matlab-simulink",
+            "code": "programming-in-matlab",
             "name": "Programming in MATLAB/Simulink",
             "level_code": "200",
             "semester_code": "first",
@@ -74,3 +74,17 @@ def test_electrical_engineering_level_200_first_semester_courses_use_canonical_s
             "semester_code": "first",
         },
     ]
+
+
+def test_catalog_seed_payload_exports_normalized_entities():
+    from src.domains.catalog.data import build_catalog_seed_payload
+
+    payload = build_catalog_seed_payload()
+
+    assert payload["faculties"]
+    assert payload["programs"]
+    assert payload["levels"]
+    assert payload["semesters"]
+    assert payload["courses"]
+    assert payload["offerings"]
+    assert any(course["code"] == "programming-in-matlab" for course in payload["courses"])

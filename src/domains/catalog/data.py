@@ -316,7 +316,7 @@ _SEE_200_FIRST_SEMESTER_COURSES = {
             "name": "Differential Equations",
         },
         {
-            "code": "programming-in-matlab-simulink",
+            "code": "programming-in-matlab",
             "name": "Programming in MATLAB/Simulink",
         },
         {
@@ -366,3 +366,80 @@ def _build_program_courses():
 
 
 PROGRAM_COURSES = _build_program_courses()
+
+
+def build_catalog_seed_payload() -> dict[str, list[dict]]:
+    programs: list[dict] = []
+    courses_by_code: dict[str, dict] = {}
+    offerings: list[dict] = []
+
+    for faculty in FACULTIES:
+        for program in faculty["programs"]:
+            programs.append(
+                {
+                    "faculty_code": faculty["code"],
+                    "code": program["code"],
+                    "name": program["name"],
+                    "is_active": True,
+                }
+            )
+
+    for program_code, courses in PROGRAM_COURSES.items():
+        for course in courses:
+            courses_by_code.setdefault(
+                course["code"],
+                {
+                    "code": course["code"],
+                    "name": course["name"],
+                    "short_name": None,
+                    "description": None,
+                    "is_active": True,
+                },
+            )
+            offerings.append(
+                {
+                    "program_code": program_code,
+                    "level_code": course["level_code"],
+                    "semester_code": course["semester_code"],
+                    "course_code": course["code"],
+                    "is_active": True,
+                }
+            )
+
+    return {
+        "faculties": [
+            {
+                "code": faculty["code"],
+                "name": faculty["name"],
+                "is_active": True,
+            }
+            for faculty in FACULTIES
+        ],
+        "programs": programs,
+        "levels": [
+            {
+                "code": level["code"],
+                "name": level["name"],
+                "is_active": True,
+            }
+            for level in LEVELS
+        ],
+        "semesters": [
+            {
+                "code": semester["code"],
+                "name": semester["name"],
+                "is_active": semester.get("active", True),
+            }
+            for semester in SEMESTERS
+        ],
+        "courses": sorted(courses_by_code.values(), key=lambda item: item["name"]),
+        "offerings": sorted(
+            offerings,
+            key=lambda item: (
+                item["program_code"],
+                item["level_code"],
+                item["semester_code"],
+                item["course_code"],
+            ),
+        ),
+    }
