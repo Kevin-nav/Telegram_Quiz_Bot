@@ -5,8 +5,9 @@ from src.domains.question_bank.asset_service import (
 
 
 class FakeStorage:
-    def __init__(self):
+    def __init__(self, *, existing_keys: set[str] | None = None):
         self.calls = []
+        self.existing_keys = existing_keys or set()
 
     def put_object(self, key: str, body: bytes, content_type: str) -> None:
         self.calls.append(
@@ -16,6 +17,9 @@ class FakeStorage:
                 "content_type": content_type,
             }
         )
+
+    def object_exists(self, key: str) -> bool:
+        return key in self.existing_keys
 
     def build_public_url(self, key: str) -> str:
         return f"https://cdn.example.com/{key}"
@@ -71,3 +75,20 @@ def test_asset_service_uploads_explanation_image():
 
     assert uploaded.key == "questions/linear-electronics/op-amp-001/v2/explanation.png"
     assert uploaded.url == "https://cdn.example.com/questions/linear-electronics/op-amp-001/v2/explanation.png"
+
+
+def test_asset_service_skips_upload_when_object_already_exists():
+    key = "questions/linear-electronics/op-amp-001/v2/explanation.png"
+    storage = FakeStorage(existing_keys={key})
+    service = QuestionBankAssetService(storage)
+
+    uploaded = service.upload_explanation_image(
+        course_slug="linear-electronics",
+        question_key="op-amp-001",
+        version="v2",
+        image_bytes=b"explanation-bytes",
+    )
+
+    assert uploaded.key == key
+    assert uploaded.url == f"https://cdn.example.com/{key}"
+    assert storage.calls == []

@@ -74,7 +74,8 @@ class QuestionBankAssetService:
 
     def _upload_png_if_missing(self, key: str, image_bytes: bytes) -> UploadedAsset:
         """Upload to R2 only if the object doesn't already exist."""
-        if self.storage.object_exists(key):
+        object_exists = getattr(self.storage, "object_exists", None)
+        if callable(object_exists) and object_exists(key):
             log.info("R2 object already exists, skipping upload: %s", key)
             return UploadedAsset(key=key, url=self.storage.build_public_url(key))
 
