@@ -27,6 +27,17 @@ class FakeCatalogService:
         return list(self.courses)
 
 
+class AsyncCatalogService:
+    def __init__(self, courses=None):
+        self.courses = courses or []
+
+    async def get_faculties(self):
+        return [{"code": "engineering", "name": "Faculty of Engineering"}]
+
+    async def get_courses(self, faculty_code, program_code, level_code, semester_code):
+        return list(self.courses)
+
+
 class FakeQuizSessionService:
     def __init__(self, *, error: Exception | None = None):
         self.calls = []
@@ -84,6 +95,42 @@ async def test_start_quiz_from_home_shows_profile_courses():
             bot_data={
                 "profile_service": FakeProfileService(user),
                 "catalog_service": FakeCatalogService(
+                    courses=[
+                        {"code": "linear-electronics", "name": "Linear Electronics"},
+                        {"code": "thermodynamics", "name": "Thermodynamics"},
+                    ]
+                ),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert "choose a course" in query.calls[-1]["text"].lower()
+    callbacks = [
+        row[0].callback_data for row in query.calls[-1]["reply_markup"].inline_keyboard
+    ]
+    assert callbacks == [
+        "quiz:course:linear-electronics",
+        "quiz:course:thermodynamics",
+        "home:start_quiz",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_start_quiz_from_home_shows_profile_courses_with_async_catalog_service():
+    user = _make_user()
+    query = FakeQuery("home:start_quiz")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "catalog_service": AsyncCatalogService(
                     courses=[
                         {"code": "linear-electronics", "name": "Linear Electronics"},
                         {"code": "thermodynamics", "name": "Thermodynamics"},

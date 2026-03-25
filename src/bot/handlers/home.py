@@ -1,3 +1,4 @@
+import inspect
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
@@ -55,6 +56,18 @@ def _get_catalog_service(
     return context.application.bot_data.get(
         "catalog_service", CatalogNavigationService()
     )
+
+
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _catalog_call(context: ContextTypes.DEFAULT_TYPE, method_name: str, *args):
+    catalog_service = _get_catalog_service(context)
+    method = getattr(catalog_service, method_name)
+    return await _maybe_await(method(*args))
 
 
 def _get_home_service(context: ContextTypes.DEFAULT_TYPE) -> HomeService:
@@ -170,7 +183,7 @@ async def _render_home(query, context: ContextTypes.DEFAULT_TYPE, user) -> None:
 async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data[STATE_KEY] = _initial_setup_state()
     context.user_data[LABEL_KEY] = _initial_setup_labels()
-    faculties = _get_catalog_service(context).get_faculties()
+    faculties = await _catalog_call(context, "get_faculties")
     await query.edit_message_text(
         text="Study Profile Setup\n\nChoose your faculty:",
         reply_markup=build_setup_keyboard(
@@ -190,15 +203,17 @@ def _user_has_complete_profile(user) -> bool:
     )
 
 
-def _get_profile_courses(
+async def _get_profile_courses(
     context: ContextTypes.DEFAULT_TYPE,
     user,
 ) -> list[dict[str, str]]:
-    return _get_catalog_service(context).get_courses(
-        faculty_code=user.faculty_code,
-        program_code=user.program_code,
-        level_code=user.level_code,
-        semester_code=user.semester_code,
+    return await _catalog_call(
+        context,
+        "get_courses",
+        user.faculty_code,
+        user.program_code,
+        user.level_code,
+        user.semester_code,
     )
 
 
@@ -246,7 +261,7 @@ async def handle_home_callback(
                 _remember_active_message(context, query)
                 return
 
-            courses = _get_profile_courses(context, user)
+            courses = await _get_profile_courses(context, user)
             if not courses:
                 await query.edit_message_text(
                     text=build_missing_course_message(),
@@ -335,7 +350,7 @@ async def handle_home_callback(
         selected_course = next(
             (
                 course
-                for course in _get_profile_courses(context, user)
+                for course in await _get_profile_courses(context, user)
                 if course["code"] == course_code
             ),
             None,

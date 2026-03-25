@@ -1,3 +1,4 @@
+import inspect
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
@@ -28,6 +29,18 @@ def _get_catalog_service(
     return context.application.bot_data.get(
         "catalog_service", CatalogNavigationService()
     )
+
+
+async def _maybe_await(value):
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _catalog_call(context: ContextTypes.DEFAULT_TYPE, method_name: str, *args):
+    catalog_service = _get_catalog_service(context)
+    method = getattr(catalog_service, method_name)
+    return await _maybe_await(method(*args))
 
 
 def _get_profile_service(context: ContextTypes.DEFAULT_TYPE) -> ProfileService:
@@ -89,17 +102,17 @@ def _prompt_for_step(step: str) -> str:
     }[step]
 
 
-def _options_for_step(
-    catalog_service: CatalogNavigationService,
+async def _options_for_step(
+    context: ContextTypes.DEFAULT_TYPE,
     state: dict[str, str | None],
     step: str,
 ) -> list[dict]:
     if step == "faculty":
-        return catalog_service.get_faculties()
+        return await _catalog_call(context, "get_faculties")
     if step == "program":
-        return catalog_service.get_programs(state["faculty"])
+        return await _catalog_call(context, "get_programs", state["faculty"])
     if step == "level":
-        return catalog_service.get_levels(state["program"])
+        return await _catalog_call(context, "get_levels", state["program"])
     return []
 
 
@@ -164,7 +177,7 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
     labels = context.user_data.setdefault(LABEL_KEY, _initial_labels())
     state["current_step"] = step
 
-    options = _options_for_step(_get_catalog_service(context), state, step)
+    options = await _options_for_step(context, state, step)
     text = f"{_selection_summary(labels)}\n\n{_prompt_for_step(step)}"
     markup = build_setup_keyboard(
         step,
@@ -274,7 +287,7 @@ async def handle_profile_setup_callback(
         return
 
     selected_code = parts[2]
-    options = _options_for_step(_get_catalog_service(context), state, action)
+    options = await _options_for_step(context, state, action)
     state[action] = selected_code
     labels[f"{action}_name"] = _option_name(options, selected_code)
     _reset_following_steps(state, labels, action)

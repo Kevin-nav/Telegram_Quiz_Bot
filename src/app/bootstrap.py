@@ -12,6 +12,7 @@ from src.bot.application import set_bot_commands
 from src.cache import redis_client
 from src.core.config import Settings, get_settings
 from src.database import AsyncSessionLocal, engine
+from src.domains.catalog.service import CatalogService
 from src.domains.profile.service import ProfileService
 from src.domains.quiz.service import QuizSessionService
 from src.infra.redis.state_store import InteractiveStateStore
@@ -61,6 +62,9 @@ async def create_app_state(*, include_arq: bool = False) -> ApplicationState:
 
 
 def configure_application_services(state: ApplicationState) -> None:
+    state.telegram_app.bot_data["catalog_service"] = CatalogService(
+        state_store=state.state_store
+    )
     state.telegram_app.bot_data["profile_service"] = ProfileService(
         session_factory=state.db_session_factory,
         state_store=state.state_store,
