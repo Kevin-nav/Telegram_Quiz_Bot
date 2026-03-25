@@ -32,9 +32,9 @@ def upgrade() -> None:
     op.create_table(
         "staff_roles",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("code", sa.String(length=64), nullable=False),
-        sa.Column("name", sa.String(length=128), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("code", sa.String(length=128), nullable=False),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("code"),
@@ -45,8 +45,8 @@ def upgrade() -> None:
         "permissions",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("code", sa.String(length=128), nullable=False),
-        sa.Column("name", sa.String(length=128), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("code"),
@@ -58,31 +58,21 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("staff_user_id", sa.BigInteger(), nullable=False),
         sa.Column("staff_role_id", sa.BigInteger(), nullable=False),
-        sa.ForeignKeyConstraint(["staff_user_id"], ["staff_users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["staff_role_id"], ["staff_roles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["staff_user_id"], ["staff_users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("staff_user_id", "staff_role_id"),
     )
-    op.create_index(
-        op.f("ix_staff_user_roles_staff_role_id"),
-        "staff_user_roles",
-        ["staff_role_id"],
-        unique=False,
-    )
-    op.create_index(
-        op.f("ix_staff_user_roles_staff_user_id"),
-        "staff_user_roles",
-        ["staff_user_id"],
-        unique=False,
-    )
+    op.create_index(op.f("ix_staff_user_roles_staff_role_id"), "staff_user_roles", ["staff_role_id"], unique=False)
+    op.create_index(op.f("ix_staff_user_roles_staff_user_id"), "staff_user_roles", ["staff_user_id"], unique=False)
 
     op.create_table(
         "staff_user_permissions",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("staff_user_id", sa.BigInteger(), nullable=False),
         sa.Column("permission_id", sa.BigInteger(), nullable=False),
-        sa.ForeignKeyConstraint(["staff_user_id"], ["staff_users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["permission_id"], ["permissions.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["staff_user_id"], ["staff_users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("staff_user_id", "permission_id"),
     )
@@ -104,8 +94,8 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("staff_role_id", sa.BigInteger(), nullable=False),
         sa.Column("permission_id", sa.BigInteger(), nullable=False),
-        sa.ForeignKeyConstraint(["staff_role_id"], ["staff_roles.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["permission_id"], ["permissions.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["staff_role_id"], ["staff_roles.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("staff_role_id", "permission_id"),
     )
@@ -132,33 +122,17 @@ def upgrade() -> None:
         sa.Column("before_data", sa.JSON(), nullable=True),
         sa.Column("after_data", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["actor_staff_user_id"], ["staff_users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(
-        op.f("ix_audit_logs_action"),
-        "audit_logs",
-        ["action"],
-        unique=False,
-    )
+    op.create_index(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
     op.create_index(
         op.f("ix_audit_logs_actor_staff_user_id"),
         "audit_logs",
         ["actor_staff_user_id"],
         unique=False,
     )
-    op.create_index(
-        op.f("ix_audit_logs_entity_id"),
-        "audit_logs",
-        ["entity_id"],
-        unique=False,
-    )
-    op.create_index(
-        op.f("ix_audit_logs_entity_type"),
-        "audit_logs",
-        ["entity_type"],
-        unique=False,
-    )
+    op.create_index(op.f("ix_audit_logs_entity_id"), "audit_logs", ["entity_id"], unique=False)
+    op.create_index(op.f("ix_audit_logs_entity_type"), "audit_logs", ["entity_type"], unique=False)
 
 
 def downgrade() -> None:
@@ -168,12 +142,24 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_audit_logs_action"), table_name="audit_logs")
     op.drop_table("audit_logs")
 
-    op.drop_index(op.f("ix_staff_role_permissions_staff_role_id"), table_name="staff_role_permissions")
-    op.drop_index(op.f("ix_staff_role_permissions_permission_id"), table_name="staff_role_permissions")
+    op.drop_index(
+        op.f("ix_staff_role_permissions_staff_role_id"),
+        table_name="staff_role_permissions",
+    )
+    op.drop_index(
+        op.f("ix_staff_role_permissions_permission_id"),
+        table_name="staff_role_permissions",
+    )
     op.drop_table("staff_role_permissions")
 
-    op.drop_index(op.f("ix_staff_user_permissions_staff_user_id"), table_name="staff_user_permissions")
-    op.drop_index(op.f("ix_staff_user_permissions_permission_id"), table_name="staff_user_permissions")
+    op.drop_index(
+        op.f("ix_staff_user_permissions_staff_user_id"),
+        table_name="staff_user_permissions",
+    )
+    op.drop_index(
+        op.f("ix_staff_user_permissions_permission_id"),
+        table_name="staff_user_permissions",
+    )
     op.drop_table("staff_user_permissions")
 
     op.drop_index(op.f("ix_staff_user_roles_staff_user_id"), table_name="staff_user_roles")
