@@ -31,6 +31,26 @@ class Settings(BaseSettings):
         default="adarkwa-bot-background-v2",
         alias="ARQ_QUEUE_NAME",
     )
+    adaptive_selector_enabled: bool = Field(
+        default=False,
+        alias="ADAPTIVE_SELECTOR_ENABLED",
+    )
+    adaptive_updater_enabled: bool = Field(
+        default=False,
+        alias="ADAPTIVE_UPDATER_ENABLED",
+    )
+    adaptive_review_jobs_enabled: bool = Field(
+        default=False,
+        alias="ADAPTIVE_REVIEW_JOBS_ENABLED",
+    )
+    adaptive_snapshot_cache_enabled: bool = Field(
+        default=True,
+        alias="ADAPTIVE_SNAPSHOT_CACHE_ENABLED",
+    )
+    adaptive_rollout_cohort: str | None = Field(
+        default=None,
+        alias="ADAPTIVE_ROLLOUT_COHORT",
+    )
     webhook_url: str | None = Field(default=None, alias="WEBHOOK_URL")
     webhook_secret: str | None = Field(default=None, alias="WEBHOOK_SECRET")
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
