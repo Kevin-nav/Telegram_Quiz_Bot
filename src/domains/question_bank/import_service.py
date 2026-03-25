@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import tempfile
 from pathlib import Path
 
@@ -21,6 +23,45 @@ from src.domains.question_bank.schemas import (
 )
 from src.domains.question_bank.validation import validate_imported_question
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Retry helpers
+# ---------------------------------------------------------------------------
+_TRANSIENT_EXCEPTIONS = (OSError, ConnectionError)
+
+try:
+    from sqlalchemy.exc import OperationalError as _SAOperationalError
+    _TRANSIENT_EXCEPTIONS = (*_TRANSIENT_EXCEPTIONS, _SAOperationalError)
+except ImportError:
+    pass
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0  # seconds
+
+
+async def _retry_async(coro_factory, *, label: str = "operation"):
+    """Retry an async callable up to MAX_RETRIES times with exponential backoff."""
+    last_exc: Exception | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return await coro_factory()
+        except _TRANSIENT_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES:
+                delay = RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                log.warning(
+                    "[retry] %s failed (attempt %d/%d): %s — retrying in %.1fs",
+                    label, attempt, MAX_RETRIES, exc, delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                log.error(
+                    "[retry] %s failed after %d attempts: %s",
+                    label, MAX_RETRIES, exc,
+                )
+    raise last_exc  # type: ignore[misc]
 
 
 class QuestionBankImportService:
@@ -67,12 +108,14 @@ class QuestionBankImportService:
         )
 
         rows = self.load_question_rows(source_path)
+        total = len(rows)
         for row_index, row in enumerate(rows):
             result = await self._import_row(
                 course_id=course_id,
                 course_slug=resolved_course_slug,
                 row=row,
                 row_index=row_index,
+                total_rows=total,
             )
             report.add_result(result)
 
@@ -85,13 +128,16 @@ class QuestionBankImportService:
         course_slug: str,
         row: dict,
         row_index: int,
+        total_rows: int,
     ) -> QuestionImportResult:
         question_key: str | None = None
         source_checksum: str | None = None
+        progress = f"[{row_index + 1}/{total_rows}]"
 
         try:
             question = ImportedQuestion.from_dict(row)
         except Exception as exc:
+            log.warning("%s Row normalization failed: %s", progress, exc)
             return QuestionImportResult(
                 row_index=row_index,
                 status="invalid",
@@ -100,6 +146,7 @@ class QuestionBankImportService:
 
         errors = validate_imported_question(question)
         if errors:
+            log.warning("%s Validation failed: %s", progress, errors)
             return QuestionImportResult(
                 row_index=row_index,
                 status="invalid",
@@ -108,6 +155,29 @@ class QuestionBankImportService:
 
         question_key = build_question_key(course_id, question)
         source_checksum = build_question_source_checksum(question)
+
+        # ---- Resume: skip if already "ready" with same checksum ----
+        try:
+            existing = await _retry_async(
+                lambda: self.repository.get_question(question_key),
+                label=f"get_question({question_key})",
+            )
+        except Exception:
+            existing = None
+
+        if (
+            existing
+            and existing.status == "ready"
+            and existing.source_checksum == source_checksum
+        ):
+            log.info("%s [%s] Already ready — skipping.", progress, question_key)
+            return QuestionImportResult(
+                row_index=row_index,
+                question_key=question_key,
+                status="ready",
+                variant_count=existing.variant_count or 0,
+            )
+
         question_payload = {
             "question_key": question_key,
             "course_id": course_id,
@@ -118,22 +188,31 @@ class QuestionBankImportService:
             **question.to_dict(),
         }
 
-        stored_question = await self.repository.upsert_question(question_payload)
+        log.info("%s [%s] Saving to DB...", progress, question_key)
+        stored_question = await _retry_async(
+            lambda: self.repository.upsert_question(question_payload),
+            label=f"upsert({question_key})",
+        )
 
         try:
             if not question.has_latex:
-                await self.repository.update_question_status(
-                    question_key,
-                    status="ready",
-                    source_checksum=source_checksum,
-                    variant_count=0,
+                await _retry_async(
+                    lambda: self.repository.update_question_status(
+                        question_key,
+                        status="ready",
+                        source_checksum=source_checksum,
+                        variant_count=0,
+                    ),
+                    label=f"update_status({question_key})",
                 )
+                log.info("%s [%s] Ready (no LaTeX).", progress, question_key)
                 return QuestionImportResult(
                     row_index=row_index,
                     question_key=question_key,
                     status="ready",
                 )
 
+            log.info("%s [%s] Processing LaTeX...", progress, question_key)
             latex_assets = await self._process_latex_assets(
                 question_id=stored_question.id,
                 course_slug=course_slug,
@@ -142,18 +221,26 @@ class QuestionBankImportService:
                 question=question,
             )
 
-            await self.repository.replace_asset_variants(
-                latex_assets["question_id"], latex_assets["variants"]
+            log.info("%s [%s] Replacing variant records...", progress, question_key)
+            await _retry_async(
+                lambda: self.repository.replace_asset_variants(
+                    latex_assets["question_id"], latex_assets["variants"]
+                ),
+                label=f"replace_variants({question_key})",
             )
-            await self.repository.update_question_status(
-                question_key,
-                status="ready",
-                source_checksum=source_checksum,
-                render_checksum=latex_assets["render_checksum"],
-                explanation_asset_key=latex_assets["explanation_asset"].key,
-                explanation_asset_url=latex_assets["explanation_asset"].url,
-                variant_count=len(latex_assets["variants"]),
+            await _retry_async(
+                lambda: self.repository.update_question_status(
+                    question_key,
+                    status="ready",
+                    source_checksum=source_checksum,
+                    render_checksum=latex_assets["render_checksum"],
+                    explanation_asset_key=latex_assets["explanation_asset"].key,
+                    explanation_asset_url=latex_assets["explanation_asset"].url,
+                    variant_count=len(latex_assets["variants"]),
+                ),
+                label=f"update_status({question_key})",
             )
+            log.info("%s [%s] LaTeX and DB done!", progress, question_key)
             return QuestionImportResult(
                 row_index=row_index,
                 question_key=question_key,
@@ -161,12 +248,23 @@ class QuestionBankImportService:
                 variant_count=len(latex_assets["variants"]),
             )
         except Exception as exc:
-            await self.repository.update_question_status(
-                question_key,
-                status="error",
-                source_checksum=source_checksum,
-                variant_count=0,
-            )
+            log.error("%s [%s] ERRORED: %s", progress, question_key, exc)
+            # Try to mark as error in DB — but don't let *this* fail crash the loop
+            try:
+                await _retry_async(
+                    lambda: self.repository.update_question_status(
+                        question_key,
+                        status="error",
+                        source_checksum=source_checksum,
+                        variant_count=0,
+                    ),
+                    label=f"mark_error({question_key})",
+                )
+            except Exception as inner_exc:
+                log.error(
+                    "%s [%s] Could not mark as error in DB: %s",
+                    progress, question_key, inner_exc,
+                )
             return QuestionImportResult(
                 row_index=row_index,
                 question_key=question_key,

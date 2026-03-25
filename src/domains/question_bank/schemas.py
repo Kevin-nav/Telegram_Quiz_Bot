@@ -55,7 +55,7 @@ class ImportedQuestion:
             note_reference=float(payload["note_reference"]),
             distractor_complexity=float(payload["distractor_complexity"]),
             processing_complexity=float(payload["processing_complexity"]),
-            negative_stem=float(payload["negative_stem"]),
+            negative_stem=float(payload.get("negative_stem", 0.0)),
             cognitive_level=str(payload["cognitive_level"]),
             option_count=int(payload["option_count"]),
             topic_id=str(payload["topic_id"]),

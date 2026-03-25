@@ -3,7 +3,7 @@ from __future__ import annotations
 from src.domains.question_bank.schemas import ImportedQuestion
 
 
-SUPPORTED_QUESTION_TYPES = {"MCQ"}
+SUPPORTED_QUESTION_TYPES = {"MCQ", "T/F"}
 SUPPORTED_COGNITIVE_LEVELS = {
     "Remembering",
     "Understanding",
@@ -58,10 +58,14 @@ def validate_imported_question(question: ImportedQuestion) -> list[str]:
         ("note_reference", question.note_reference),
         ("distractor_complexity", question.distractor_complexity),
         ("processing_complexity", question.processing_complexity),
-        ("negative_stem", question.negative_stem),
     ):
         if value < 1.0:
             errors.append(f"{field_name} must be greater than or equal to 1.0")
+
+    # negative_stem is optional for non-MCQ types (e.g. T/F uses statement_clarity).
+    # When absent it is defaulted to 0.0, so we only validate it when it was present.
+    if question.negative_stem > 0.0 and question.negative_stem < 1.0:
+        errors.append("negative_stem must be greater than or equal to 1.0")
 
     return errors
 

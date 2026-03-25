@@ -1,11 +1,38 @@
-from __future__ import annotations
-
+import re
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 from pdf2image import convert_from_path
+
+
+def escape_latex_text(text: str) -> str:
+    """Escape LaTeX special characters in non-math portions of text.
+
+    Splits the string on ``$…$`` math spans (inline math), escapes the
+    text portions, and leaves the math spans untouched.  The characters
+    escaped are those that would otherwise confuse pdflatex when they appear
+    outside math mode: ``_ ^ # & % { }``.
+    """
+    # Split on inline math: $...$ (non-greedy, doesn't cross newlines within $)
+    # We capture the delimiter so we can re-assemble correctly.
+    parts = re.split(r'(\$[^$\\]*(?:\\.[^$\\]*)*\$)', text)
+    escaped_parts = []
+    for i, part in enumerate(parts):
+        if part.startswith('$') and part.endswith('$') and len(part) > 1:
+            # Math span — leave untouched
+            escaped_parts.append(part)
+        else:
+            # Text span — escape special chars
+            # Order matters: \ must go first if you ever add it
+            part = part.replace('_', r'\_')
+            part = part.replace('^', r'\^{}')
+            part = part.replace('#', r'\#')
+            part = part.replace('&', r'\&')
+            part = part.replace('%', r'\%')
+            escaped_parts.append(part)
+    return ''.join(escaped_parts)
 
 
 QUESTION_TEMPLATE = r"""\documentclass[16pt, border=25pt]{standalone}
@@ -159,7 +186,7 @@ def _build_option_box(label: str, option_text: str) -> str:
         r"\begin{tcolorbox}[enhanced, colback=white, colframe=mainYellow, "
         r"boxrule=0.3mm, leftrule=1.5mm, arc=1.5mm, drop fuzzy shadow=black!4!white]"
         "\n"
-        rf"\textbf{{\textcolor{{mainYellow!90!black}}{{{label}}}}}\hspace{{0.3cm}} {option_text}"
+        rf"\textbf{{\textcolor{{mainYellow!90!black}}{{{label}}}}}\hspace{{0.3cm}} {escape_latex_text(option_text)}"
         "\n"
         r"\end{tcolorbox}"
     )
@@ -170,13 +197,13 @@ def build_question_latex(question_text: str, options: list[str]) -> str:
         _build_option_box(chr(65 + index), option_text)
         for index, option_text in enumerate(options)
     ]
-    return QUESTION_TEMPLATE.replace("{QUESTION_TEXT}", question_text).replace(
+    return QUESTION_TEMPLATE.replace("{QUESTION_TEXT}", escape_latex_text(question_text)).replace(
         "{OPTIONS}", "\n".join(option_boxes)
     )
 
 
 def build_explanation_latex(correct_option_text: str, explanation_text: str) -> str:
     return (
-        EXPLANATION_TEMPLATE.replace("{CORRECT_OPTION_TEXT}", correct_option_text)
-        .replace("{EXPLANATION_TEXT}", explanation_text)
+        EXPLANATION_TEMPLATE.replace("{CORRECT_OPTION_TEXT}", escape_latex_text(correct_option_text))
+        .replace("{EXPLANATION_TEXT}", escape_latex_text(explanation_text))
     )

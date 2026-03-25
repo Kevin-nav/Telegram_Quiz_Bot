@@ -2,12 +2,32 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
+import sys
 from pathlib import Path
 
 from src.domains.question_bank.import_service import QuestionBankImportService
 
 
 DEFAULT_Q_AND_A_ROOT = Path(__file__).resolve().parents[2] / "q_and_a"
+
+log = logging.getLogger(__name__)
+
+
+def setup_logging(verbose: bool = False) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr,
+    )
+    # Quieten noisy libraries unless verbose
+    if not verbose:
+        logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+        logging.getLogger("asyncpg").setLevel(logging.WARNING)
+        logging.getLogger("botocore").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
 def discover_course_json_files(q_and_a_root: Path) -> dict[str, Path]:
@@ -52,12 +72,18 @@ async def import_courses(
 
     reports = []
     for discovered_course_slug, json_path in discovered.items():
-        reports.append(
-            await service.import_course_from_json(
-                course_id=discovered_course_slug,
-                course_slug=discovered_course_slug,
-                json_path=json_path,
-            )
+        log.info("Importing %s...", discovered_course_slug)
+        report = await service.import_course_from_json(
+            course_id=discovered_course_slug,
+            course_slug=discovered_course_slug,
+            json_path=json_path,
+        )
+        reports.append(report)
+        log.info(
+            "Finished %s: %d ready, %d failed",
+            discovered_course_slug,
+            report.successful_rows,
+            report.failed_rows,
         )
     return reports
 
@@ -87,12 +113,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_Q_AND_A_ROOT,
         help="Path to the shared q_and_a directory.",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging.",
+    )
     return parser
 
 
 async def async_main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    setup_logging(verbose=args.verbose)
 
     service = QuestionBankImportService()
     reports = await import_courses(
@@ -103,12 +136,12 @@ async def async_main(argv: list[str] | None = None) -> int:
     )
 
     for report in reports:
-        print(format_report_summary(report))
+        log.info(format_report_summary(report))
 
     total_rows = sum(report.total_rows for report in reports)
     total_ready = sum(report.successful_rows for report in reports)
     total_failed = sum(report.failed_rows for report in reports)
-    print(f"overall: total={total_rows} ready={total_ready} failed={total_failed}")
+    log.info("overall: total=%d ready=%d failed=%d", total_rows, total_ready, total_failed)
     return 0
 
 

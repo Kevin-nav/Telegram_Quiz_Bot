@@ -38,6 +38,9 @@ class FakeRepository:
         self.status_updates.append((question_key, kwargs))
         return self._records.get(question_key)
 
+    async def get_question(self, question_key: str):
+        return self._records.get(question_key)
+
     async def replace_asset_variants(self, question_id: int, variants: list[dict]):
         self.variant_replacements.append((question_id, variants))
         return variants

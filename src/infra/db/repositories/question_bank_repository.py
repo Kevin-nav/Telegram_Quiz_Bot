@@ -60,6 +60,10 @@ class QuestionBankRepository:
             )
             return list(result.scalars().all())
 
+    async def get_question(self, question_key: str) -> QuestionBank | None:
+        async with self.session_factory() as session:
+            return await self._get_question_by_key(session, question_key)
+
     async def update_question_status(
         self,
         question_key: str,
