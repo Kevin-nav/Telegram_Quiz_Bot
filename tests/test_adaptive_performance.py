@@ -69,6 +69,15 @@ class CountingStudentQuestionSrsRepository:
         return {}
 
 
+class CountingQuestionAttemptRepository:
+    def __init__(self):
+        self.calls = 0
+
+    async def list_attempts_for_questions(self, *, user_id: int, question_ids):
+        self.calls += 1
+        return {}
+
+
 @pytest.mark.asyncio
 async def test_selector_uses_batched_repository_calls_only():
     question_bank_repository = CountingQuestionBankRepository(
@@ -80,8 +89,10 @@ async def test_selector_uses_batched_repository_calls_only():
     )
     student_course_state_repository = CountingStudentCourseStateRepository()
     student_question_srs_repository = CountingStudentQuestionSrsRepository()
+    question_attempt_repository = CountingQuestionAttemptRepository()
     service = AdaptiveLearningService(
         question_bank_repository=question_bank_repository,
+        question_attempt_repository=question_attempt_repository,
         student_course_state_repository=student_course_state_repository,
         student_question_srs_repository=student_question_srs_repository,
     )
@@ -94,5 +105,6 @@ async def test_selector_uses_batched_repository_calls_only():
 
     assert len(result.selected_questions) == 2
     assert question_bank_repository.calls == 1
+    assert question_attempt_repository.calls == 1
     assert student_course_state_repository.calls == 1
     assert student_question_srs_repository.calls == 1
