@@ -185,6 +185,8 @@ class QuizSessionService:
                             "scaled_score": question.scaled_score,
                             "band": question.band,
                             "cognitive_level": question.cognitive_level,
+                            "question_type": "MCQ",
+                            "option_count": len(question.options),
                             "processing_complexity": question.processing_complexity,
                             "distractor_complexity": question.distractor_complexity,
                             "note_reference": question.note_reference,

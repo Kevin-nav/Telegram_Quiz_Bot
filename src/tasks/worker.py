@@ -62,7 +62,7 @@ async def persist_quiz_attempt(ctx: dict[str, Any], payload: dict) -> None:
 
 
 async def persist_quiz_session_progress(ctx: dict[str, Any], payload: dict) -> None:
-    await handle_persist_quiz_session_progress(payload)
+    await handle_persist_quiz_session_progress(payload, runtime=ctx["runtime"])
 
 
 async def generate_quiz_session(ctx: dict[str, Any], payload: dict) -> None:

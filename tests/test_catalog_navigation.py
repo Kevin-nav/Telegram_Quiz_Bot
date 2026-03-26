@@ -1,80 +1,56 @@
 import pytest
 
 
-def test_first_semester_catalog_returns_program_courses():
+@pytest.mark.asyncio
+async def test_navigation_service_reads_courses_from_catalog_service():
     from src.domains.catalog.navigation_service import CatalogNavigationService
 
-    service = CatalogNavigationService()
-    courses = service.get_courses(
+    class FakeCatalogService:
+        async def get_courses(
+            self,
+            faculty_code: str,
+            program_code: str,
+            level_code: str,
+            semester_code: str,
+        ):
+            assert faculty_code == "engineering"
+            assert program_code == "mechanical-engineering"
+            assert level_code == "100"
+            assert semester_code == "first"
+            return [{"code": "calculus", "name": "Calculus"}]
+
+    service = CatalogNavigationService(FakeCatalogService())
+    courses = await service.get_courses(
         faculty_code="engineering",
         program_code="mechanical-engineering",
         level_code="100",
         semester_code="first",
     )
 
-    assert courses
+    assert courses == [{"code": "calculus", "name": "Calculus"}]
 
 
-def test_electrical_engineering_level_200_first_semester_courses_use_canonical_slugs():
+@pytest.mark.asyncio
+async def test_navigation_service_reads_programs_from_catalog_service():
     from src.domains.catalog.navigation_service import CatalogNavigationService
 
-    service = CatalogNavigationService()
+    class FakeCatalogService:
+        async def get_programs(self, faculty_code: str):
+            assert faculty_code == "engineering"
+            return [
+                {
+                    "code": "electrical-and-electronics-engineering",
+                    "name": "Electrical and Electronics Engineering",
+                }
+            ]
 
-    courses = service.get_courses(
-        faculty_code="engineering",
-        program_code="electrical-and-electronics-engineering",
-        level_code="200",
-        semester_code="first",
-    )
+    service = CatalogNavigationService(FakeCatalogService())
+    programs = await service.get_programs("engineering")
 
-    assert courses == [
+    assert programs == [
         {
-            "code": "differential-equations",
-            "name": "Differential Equations",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "general-psychology",
-            "name": "General Psychology",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "linear-electronics",
-            "name": "Linear Electronics",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "programming-in-labview",
-            "name": "Programming in LabVIEW",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "programming-in-matlab",
-            "name": "Programming in MATLAB/Simulink",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "thermodynamics",
-            "name": "Thermodynamics",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "transformers-and-dc-machines",
-            "name": "Transformers and DC Machines",
-            "level_code": "200",
-            "semester_code": "first",
-        },
-        {
-            "code": "workshop-technology-and-practice",
-            "name": "Workshop Technology and Practice",
-            "level_code": "200",
-            "semester_code": "first",
+            "code": "electrical-and-electronics-engineering",
+            "name": "Electrical and Electronics Engineering",
         },
     ]
 

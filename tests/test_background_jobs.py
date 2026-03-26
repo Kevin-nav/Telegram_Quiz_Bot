@@ -11,6 +11,7 @@ from src.domains.adaptive.review import (
 from src.domains.adaptive.models import AdaptiveQuestionProfile
 from src.workers.background_jobs import (
     persist_quiz_attempt,
+    persist_quiz_session_progress,
     review_distractor_patterns,
     review_empirical_difficulty,
     review_time_allocation,
@@ -83,6 +84,10 @@ async def test_persisted_attempt_includes_arrangement_hash_or_config_index():
             new=AsyncMock(return_value=None),
         ) as get_srs,
         patch(
+            "src.workers.background_jobs.question_attempt_repository.list_attempts_for_question",
+            new=AsyncMock(return_value=[]),
+        ) as list_attempts,
+        patch(
             "src.workers.background_jobs.student_question_srs_repository.upsert",
             new=AsyncMock(),
         ) as upsert_srs,
@@ -107,6 +112,7 @@ async def test_persisted_attempt_includes_arrangement_hash_or_config_index():
     assert apply_payload["question"].question_id == "linear-electronics-q1"
     assert apply_payload["question"].scaled_score == 2.0
     assert apply_payload["selected_distractor"] == "C"
+    list_attempts.assert_awaited_once_with(user_id=42, question_id=17)
     get_srs.assert_awaited_once()
     upsert_payload = upsert_srs.await_args.kwargs
     assert upsert_payload["question_id"] == 17
@@ -190,3 +196,30 @@ async def test_review_worker_functions_persist_open_flags():
         "distractor_bias",
         "time_limit_review",
     }
+
+
+@pytest.mark.asyncio
+async def test_completed_quiz_progress_increments_quiz_counter():
+    payload = {
+        "session_id": "session-1",
+        "user_id": 42,
+        "course_id": "linear-electronics",
+        "status": "completed",
+        "score": 8,
+        "total_questions": 10,
+    }
+
+    with (
+        patch(
+            "src.workers.background_jobs.student_course_state_repository.increment_counters",
+            new=AsyncMock(),
+        ) as increment_counters,
+        patch(
+            "src.workers.background_jobs.analytics.track_event",
+            new=AsyncMock(),
+        ) as track_event,
+    ):
+        await persist_quiz_session_progress(payload)
+
+    increment_counters.assert_awaited_once_with(42, "linear-electronics", quizzes=1)
+    track_event.assert_awaited_once()

@@ -12,6 +12,9 @@ from src.domains.adaptive.srs import advance_srs_box
 from src.analytics.internal_analytics import analytics
 from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
 from src.infra.db.repositories.adaptive_review_repository import AdaptiveReviewRepository
+from src.infra.db.repositories.student_course_state_repository import (
+    StudentCourseStateRepository,
+)
 from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
 from src.infra.redis.idempotency import AdaptiveAttemptIdempotencyStore
 
@@ -20,6 +23,7 @@ logger = logging.getLogger(__name__)
 question_attempt_repository = QuestionAttemptRepository()
 adaptive_learning_service = AdaptiveLearningService()
 adaptive_review_repository = AdaptiveReviewRepository()
+student_course_state_repository = StudentCourseStateRepository()
 student_question_srs_repository = StudentQuestionSrsRepository()
 
 
@@ -123,6 +127,14 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                 if runtime is not None
                 else adaptive_learning_service
             )
+            attempts_for_question = []
+            if source_question_id is not None:
+                attempts_for_question = (
+                    await question_attempt_repository.list_attempts_for_question(
+                        user_id=payload["user_id"],
+                        question_id=source_question_id,
+                    )
+                )
             await service.apply_attempt_update(
                 user_id=payload["user_id"],
                 course_id=payload["course_id"],
@@ -145,7 +157,7 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                 time_taken_seconds=payload.get("time_taken_seconds"),
                 time_allocated_seconds=payload.get("time_allocated_seconds"),
                 selected_distractor=payload.get("selected_option_text"),
-                attempts_for_question=[],
+                attempts_for_question=attempts_for_question,
             )
             if source_question_id is not None:
                 existing_srs = await student_question_srs_repository.get(
@@ -255,8 +267,19 @@ async def review_time_allocation(payload: dict, attempts: list) -> None:
     )
 
 
-async def persist_quiz_session_progress(payload: dict) -> None:
+async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
     logger.info("Persisting quiz session progress payload=%s", payload)
+    if payload.get("status") == "completed":
+        await student_course_state_repository.increment_counters(
+            payload["user_id"],
+            payload["course_id"],
+            quizzes=1,
+        )
+        if runtime is not None:
+            await runtime.state_store.invalidate_adaptive_snapshot(
+                payload["user_id"],
+                payload["course_id"],
+            )
     await analytics.track_event(
         user_id=payload["user_id"],
         event_type="quiz_session_progress_persisted",

@@ -1,3 +1,6 @@
+from collections import defaultdict
+from collections.abc import Iterable
+
 from sqlalchemy import select
 
 from src.infra.db.models.question_attempt import QuestionAttempt
@@ -36,3 +39,27 @@ class QuestionAttemptRepository:
                 statement = statement.limit(limit)
             result = await session.execute(statement)
             return list(result.scalars().all())
+
+    async def list_attempts_for_questions(
+        self,
+        *,
+        user_id: int,
+        question_ids: Iterable[int],
+    ) -> dict[int, list[QuestionAttempt]]:
+        question_ids = list(question_ids)
+        if not question_ids:
+            return {}
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(QuestionAttempt)
+                .where(
+                    QuestionAttempt.user_id == user_id,
+                    QuestionAttempt.question_id.in_(question_ids),
+                )
+                .order_by(QuestionAttempt.created_at.asc(), QuestionAttempt.id.asc())
+            )
+            grouped: dict[int, list[QuestionAttempt]] = defaultdict(list)
+            for attempt in result.scalars().all():
+                grouped[attempt.question_id].append(attempt)
+            return dict(grouped)

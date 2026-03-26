@@ -81,14 +81,14 @@ def test_arq_queue_name_defaults_to_background_v2(monkeypatch):
     assert settings.arq_queue_name == "adarkwa-bot-background-v2"
 
 
-def test_adaptive_rollout_flags_default_conservatively(monkeypatch):
+def test_settings_do_not_expose_adaptive_rollout_flags(monkeypatch):
     monkeypatch.setenv("APP_ENV", "testing")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
 
     settings = Settings()
 
-    assert settings.adaptive_selector_enabled is False
-    assert settings.adaptive_updater_enabled is False
-    assert settings.adaptive_review_jobs_enabled is False
-    assert settings.adaptive_snapshot_cache_enabled is True
-    assert settings.adaptive_rollout_cohort is None
+    assert not hasattr(settings, "adaptive_selector_enabled")
+    assert not hasattr(settings, "adaptive_updater_enabled")
+    assert not hasattr(settings, "adaptive_review_jobs_enabled")
+    assert not hasattr(settings, "adaptive_snapshot_cache_enabled")
+    assert not hasattr(settings, "adaptive_rollout_cohort")

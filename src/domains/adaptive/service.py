@@ -11,6 +11,7 @@ from src.domains.adaptive.updater import (
     AdaptiveUpdateResult,
     apply_attempt_update as apply_adaptive_attempt_update,
 )
+from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
 from src.infra.db.repositories.student_course_state_repository import (
     StudentCourseStateRepository,
@@ -33,11 +34,15 @@ class AdaptiveLearningService:
         self,
         *,
         question_bank_repository: QuestionBankRepository | None = None,
+        question_attempt_repository: QuestionAttemptRepository | None = None,
         student_course_state_repository: StudentCourseStateRepository | None = None,
         student_question_srs_repository: StudentQuestionSrsRepository | None = None,
         state_store: InteractiveStateStore | None = None,
     ):
         self.question_bank_repository = question_bank_repository or QuestionBankRepository()
+        self.question_attempt_repository = (
+            question_attempt_repository or QuestionAttemptRepository()
+        )
         self.student_course_state_repository = (
             student_course_state_repository or StudentCourseStateRepository()
         )
@@ -63,6 +68,15 @@ class AdaptiveLearningService:
         student_state = await self._load_student_state(user_id, course_id)
         question_rows = await self.question_bank_repository.list_ready_questions(course_id)
         question_profiles = [self._question_row_to_profile(row) for row in question_rows]
+        attempts_by_question, recently_correct_at_by_question, attempted_question_ids = (
+            await self._load_attempt_inputs(
+                user_id,
+                question_rows,
+                attempts_by_question=attempts_by_question,
+                recently_correct_at_by_question=recently_correct_at_by_question,
+                attempted_question_ids=attempted_question_ids,
+            )
+        )
         srs_by_question = await self._load_srs_by_question(
             user_id,
             question_rows,
@@ -128,6 +142,15 @@ class AdaptiveLearningService:
         if self.state_store is not None:
             await self.state_store.invalidate_adaptive_snapshot(user_id, course_id)
         return result
+
+    async def increment_completed_quizzes(self, *, user_id: int, course_id: str) -> None:
+        await self.student_course_state_repository.increment_counters(
+            user_id,
+            course_id,
+            quizzes=1,
+        )
+        if self.state_store is not None:
+            await self.state_store.invalidate_adaptive_snapshot(user_id, course_id)
 
     async def _load_student_state(
         self, user_id: int, course_id: str
@@ -200,6 +223,70 @@ class AdaptiveLearningService:
             for question_key, question_id in question_ids_by_key.items()
             if question_id in records
         }
+
+    async def _load_attempt_inputs(
+        self,
+        user_id: int,
+        question_rows: Sequence[Any],
+        *,
+        attempts_by_question: dict[str, Sequence[Any]] | None = None,
+        recently_correct_at_by_question: dict[str, datetime] | None = None,
+        attempted_question_ids: set[str] | None = None,
+    ) -> tuple[dict[str, Sequence[Any]], dict[str, datetime], set[str]]:
+        if (
+            attempts_by_question is not None
+            and recently_correct_at_by_question is not None
+            and attempted_question_ids is not None
+        ):
+            return (
+                attempts_by_question,
+                recently_correct_at_by_question,
+                attempted_question_ids,
+            )
+
+        question_keys_by_id = {
+            row.id: row.question_key
+            for row in question_rows
+            if getattr(row, "id", None) is not None
+        }
+        if not question_keys_by_id:
+            return (
+                attempts_by_question or {},
+                recently_correct_at_by_question or {},
+                set(attempted_question_ids or ()),
+            )
+
+        attempts_by_row_id = await self.question_attempt_repository.list_attempts_for_questions(
+            user_id=user_id,
+            question_ids=question_keys_by_id.keys(),
+        )
+        loaded_attempts_by_question: dict[str, Sequence[Any]] = {}
+        loaded_recently_correct_at_by_question: dict[str, datetime] = {}
+        loaded_attempted_question_ids: set[str] = set()
+
+        for question_id, attempts in attempts_by_row_id.items():
+            question_key = question_keys_by_id.get(question_id)
+            if question_key is None:
+                continue
+
+            loaded_attempts_by_question[question_key] = attempts
+            if attempts:
+                loaded_attempted_question_ids.add(question_key)
+
+            correct_timestamps = [
+                getattr(attempt, "created_at", None)
+                for attempt in attempts
+                if getattr(attempt, "is_correct", False)
+                and getattr(attempt, "created_at", None) is not None
+            ]
+            if correct_timestamps:
+                loaded_recently_correct_at_by_question[question_key] = max(correct_timestamps)
+
+        return (
+            attempts_by_question or loaded_attempts_by_question,
+            recently_correct_at_by_question or loaded_recently_correct_at_by_question,
+            set(attempted_question_ids or loaded_attempted_question_ids),
+        )
 
     def _question_row_to_profile(self, row: Any) -> AdaptiveQuestionProfile:
         return AdaptiveQuestionProfile(

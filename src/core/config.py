@@ -31,29 +31,17 @@ class Settings(BaseSettings):
         default="adarkwa-bot-background-v2",
         alias="ARQ_QUEUE_NAME",
     )
-    adaptive_selector_enabled: bool = Field(
-        default=False,
-        alias="ADAPTIVE_SELECTOR_ENABLED",
-    )
-    adaptive_updater_enabled: bool = Field(
-        default=False,
-        alias="ADAPTIVE_UPDATER_ENABLED",
-    )
-    adaptive_review_jobs_enabled: bool = Field(
-        default=False,
-        alias="ADAPTIVE_REVIEW_JOBS_ENABLED",
-    )
-    adaptive_snapshot_cache_enabled: bool = Field(
-        default=True,
-        alias="ADAPTIVE_SNAPSHOT_CACHE_ENABLED",
-    )
-    adaptive_rollout_cohort: str | None = Field(
-        default=None,
-        alias="ADAPTIVE_ROLLOUT_COHORT",
-    )
     webhook_url: str | None = Field(default=None, alias="WEBHOOK_URL")
     webhook_secret: str | None = Field(default=None, alias="WEBHOOK_SECRET")
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
+    admin_allowed_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="ADMIN_ALLOWED_ORIGINS",
+    )
+    admin_session_cookie_domain: str | None = Field(
+        default=None,
+        alias="ADMIN_SESSION_COOKIE_DOMAIN",
+    )
     r2_account_id: str | None = Field(default=None, alias="R2_ACCOUNT_ID")
     r2_access_key_id: str | None = Field(default=None, alias="R2_ACCESS_KEY_ID")
     r2_secret_access_key: str | None = Field(
@@ -112,6 +100,14 @@ class Settings(BaseSettings):
     @property
     def sync_database_url(self) -> str:
         return normalize_sync_database_url(self.database_url)
+
+    @property
+    def parsed_admin_allowed_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.admin_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache(maxsize=1)

@@ -66,6 +66,27 @@ class FakeStudentCourseStateRepository:
         return self.state
 
 
+class FakeAttempt:
+    def __init__(self, *, is_correct: bool, created_at=None):
+        self.is_correct = is_correct
+        self.created_at = created_at
+
+
+class FakeQuestionAttemptRepository:
+    def __init__(self, attempts_by_question_id=None):
+        self.attempts_by_question_id = attempts_by_question_id or {}
+        self.calls = []
+
+    async def list_attempts_for_questions(self, *, user_id: int, question_ids):
+        question_ids = tuple(question_ids)
+        self.calls.append((user_id, question_ids))
+        return {
+            question_id: list(self.attempts_by_question_id.get(question_id, ()))
+            for question_id in question_ids
+            if question_id in self.attempts_by_question_id
+        }
+
+
 class FakeSrsRecord:
     def __init__(self, question_id: int, box: int = 1):
         self.question_id = question_id
@@ -107,6 +128,12 @@ class FakeStateStore:
 @pytest.mark.asyncio
 async def test_adaptive_service_selects_questions_from_batched_inputs():
     state_store = FakeStateStore()
+    attempt_repository = FakeQuestionAttemptRepository(
+        {
+            1: [FakeAttempt(is_correct=False)],
+            2: [FakeAttempt(is_correct=True)],
+        }
+    )
     service = AdaptiveLearningService(
         question_bank_repository=FakeQuestionBankRepository(
             [
@@ -115,6 +142,7 @@ async def test_adaptive_service_selects_questions_from_batched_inputs():
                 FakeQuestionRow(3, "q3", "topic-b", 3.0, band=2),
             ]
         ),
+        question_attempt_repository=attempt_repository,
         student_course_state_repository=FakeStudentCourseStateRepository(),
         student_question_srs_repository=FakeStudentQuestionSrsRepository(
             {1: FakeSrsRecord(1, box=2)}
@@ -132,6 +160,7 @@ async def test_adaptive_service_selects_questions_from_batched_inputs():
     assert len(result.selected_questions) == 2
     assert all(question.question_id in {"q1", "q2", "q3"} for question in result.selected_questions)
     assert state_store.snapshots[(42, "calculus")]["overall_skill"] == 2.5
+    assert attempt_repository.calls == [(42, (1, 2, 3))]
 
 
 @pytest.mark.asyncio
@@ -140,6 +169,7 @@ async def test_adaptive_service_persists_updated_student_state_after_attempt_upd
     state_store = FakeStateStore()
     service = AdaptiveLearningService(
         question_bank_repository=FakeQuestionBankRepository([]),
+        question_attempt_repository=FakeQuestionAttemptRepository(),
         student_course_state_repository=state_repository,
         student_question_srs_repository=FakeStudentQuestionSrsRepository(),
         state_store=state_store,
