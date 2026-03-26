@@ -43,6 +43,29 @@ Production defaults stay conservative:
 - `1` worker replica
 - HPA disabled unless `ENABLE_HPA=true`
 
+## 0.1. Current Working Production State
+
+The deployment model described in this repo is no longer a planned target. It is the current intended production state:
+
+- GitHub Actions publishes GHCR images from `main`
+- the VPS deploy timer pulls and deploys the new digest
+- `cloudflared` on the VPS points to `http://localhost:80`
+- Traefik ingress routes `tg-bot-tanjah.sankoslides.com` to `adarkwa-bot-service`
+- Kubernetes webhook and worker deployments run with conservative defaults
+- Redis is a VPS-local `valkey-server` instance, not Upstash or another request-capped tier
+
+The currently known working VPS-private endpoint is:
+
+```text
+10.226.0.2:6379
+```
+
+That value should be treated as an environment fact, not a repo constant. If the VPS address changes later, update:
+
+- Valkey `bind`
+- Kubernetes secret `REDIS_URL`
+- any runbooks that mention the old IP
+
 ## 1. What Gets Deployed
 
 The repo contains:
@@ -143,6 +166,8 @@ REDIS_URL=redis://:<strong-password>@10.0.0.5:6379/0
 
 Use the VPS private IP unless you have already set up a different stable host alias for the cluster.
 
+When only Redis changes, prefer patching just `REDIS_URL` instead of recreating the full secret.
+
 ### 3.4. Image Pull Strategy
 
 Recommended:
@@ -162,7 +187,7 @@ Use:
 
 - a named Cloudflare Tunnel
 - your real production hostname
-- the in-cluster service DNS name as the tunnel target
+- the VPS-local Traefik listener as the tunnel target
 
 Recommended Cloudflare Tunnel target for a host-level `cloudflared` service:
 
@@ -251,6 +276,16 @@ Optional helper:
 
 The helper auto-loads `/etc/adarkwa-study-bot/deploy.env` when present and falls back to the `adarkwa-bot-secret` Kubernetes secret for `TELEGRAM_BOT_TOKEN`, so operators can run it directly on the VPS after the normal deployment setup.
 
+Useful production recovery commands when only Redis or webhook state needs correction:
+
+```bash
+kubectl patch secret adarkwa-bot-secret -n adarkwa-study-bot --type merge -p '{"stringData":{"REDIS_URL":"redis://:<strong-password>@10.226.0.2:6379/0"}}'
+kubectl rollout restart deployment/adarkwa-bot-webhook -n adarkwa-study-bot
+kubectl rollout restart deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+```
+
 ## 8. Security Notes
 
 Recommended baseline:
@@ -331,6 +366,12 @@ kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
+Interpretation notes:
+
+- `pending_update_count=0` is a stronger health signal than an old `last_error_message`
+- Telegram may continue to show a historical `503` or `502` even after the bot is healthy again
+- if `/health` is `200`, pods are `Running`, and Telegram traffic works, the old message is stale noise rather than current failure
+
 ## 11. Recommended Order of Operations
 
 If you want the cleanest production path, do this in order:
@@ -345,3 +386,40 @@ If you want the cleanest production path, do this in order:
 8. update the `adarkwa-bot-secret` `REDIS_URL`
 9. push to `main`
 10. verify rollout
+
+## 12. Operator Change Matrix
+
+Use this when deciding whether a change belongs in GitHub, Kubernetes, Cloudflare, or the VPS itself.
+
+Repo-only changes:
+
+- application code
+- tests
+- deployment manifests already consumed by the deploy script
+- docs
+
+VPS changes:
+
+- Valkey installation or password rotation
+- `/etc/adarkwa-study-bot/deploy.env`
+- `cloudflared` service token rotation
+- `/usr/local/bin/adarkwa-bot-deploy.sh` refresh after deploy-script changes
+
+Kubernetes secret changes:
+
+- `TELEGRAM_BOT_TOKEN`
+- `DATABASE_URL`
+- `REDIS_URL`
+- `WEBHOOK_SECRET`
+- R2 credentials
+
+Cloudflare changes:
+
+- tunnel token
+- public hostname
+- tunnel origin target
+
+One important rule:
+
+- a push to `main` is enough for normal code deployments
+- a push to `main` is not enough for runtime secret changes or VPS service changes

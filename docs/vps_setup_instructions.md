@@ -15,6 +15,28 @@ This setup is intentionally pull-based:
 
 The March 21, 2026 production incident showed that request-metered hosted Redis is not a safe fit for this bot. Production should run Redis locally on the VPS and let pods connect to it over the VPS private IP.
 
+## Current Production State
+
+As of March 24, 2026, the intended production shape is:
+
+- `cloudflared` runs on the VPS host and forwards the public bot hostname to `http://localhost:80`
+- K3s Traefik ingress routes `tg-bot-tanjah.sankoslides.com` to `adarkwa-bot-service`
+- production Redis is VPS-local `valkey-server`
+- pods reach Valkey through the VPS private IP in `REDIS_URL`
+- the deploy timer is enabled and the deploy script records `last-deployed-digest` and `last-failed-digest`
+- production defaults stay conservative:
+  - `ENABLE_HPA=false`
+  - `1` webhook replica
+  - `1` worker replica
+
+The currently known working VPS private IP is `10.226.0.2`. If the VPS network changes later, update:
+
+- Valkey `bind`
+- Kubernetes secret `REDIS_URL`
+- any operator notes that mention the old private IP
+
+Do not point a host-level `cloudflared` service at `*.svc.cluster.local`. The working production route is `cloudflared -> localhost:80 -> Traefik ingress -> adarkwa-bot-service`.
+
 ## 1. Harden the VPS First
 
 SSH into the VPS and run:
@@ -130,7 +152,7 @@ else
 fi
 ```
 
-Bind the service so the VPS itself and K3s pods can reach it through the VPS private IP. Replace `10.0.0.5` with your actual private address:
+Bind the service so the VPS itself and K3s pods can reach it through the VPS private IP. Replace `10.0.0.5` with your actual private address. The current known production value is `10.226.0.2`.
 
 ```bash
 sudo sed -i 's/^bind .*/bind 127.0.0.1 10.0.0.5/' "${REDIS_CONF}"
@@ -151,8 +173,14 @@ sudo systemctl status "${REDIS_SERVICE}"
 Verify locally on the VPS:
 
 ```bash
-redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' ping
-redis-cli -h 10.0.0.5 -a '<STRONG_REDIS_PASSWORD>' info memory
+valkey-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' ping
+valkey-cli -h 10.0.0.5 -a '<STRONG_REDIS_PASSWORD>' info memory
+```
+
+If `valkey-cli` is not installed in your image, install the compatibility package:
+
+```bash
+sudo apt install -y valkey-redis-compat
 ```
 
 Operational commands:
@@ -160,8 +188,8 @@ Operational commands:
 ```bash
 sudo systemctl restart "${REDIS_SERVICE}"
 sudo systemctl status "${REDIS_SERVICE}"
-redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info memory
-redis-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info persistence
+valkey-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info memory
+valkey-cli -h 127.0.0.1 -a '<STRONG_REDIS_PASSWORD>' info persistence
 sudo ls -lh "${REDIS_DATA_DIR}"
 ```
 
@@ -222,6 +250,15 @@ kubectl create secret generic adarkwa-bot-secret \
 You only need to rerun this when secret values change.
 
 Use the VPS private IP directly in `REDIS_URL` unless you have already created a stable host alias that every pod resolves the same way.
+
+If you are only rotating or fixing Redis, you do not need to recreate the whole secret. Patch just `REDIS_URL`:
+
+```bash
+kubectl patch secret adarkwa-bot-secret \
+  -n adarkwa-study-bot \
+  --type merge \
+  -p '{"stringData":{"REDIS_URL":"redis://:<STRONG_REDIS_PASSWORD>@10.0.0.5:6379/0"}}'
+```
 
 ## 7. Prepare GHCR Pull Access
 
@@ -346,6 +383,15 @@ kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
+For the current production setup, a direct rollout restart is enough after a `REDIS_URL` patch:
+
+```bash
+kubectl rollout restart deployment/adarkwa-bot-webhook -n adarkwa-study-bot
+kubectl rollout restart deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+```
+
 If the rollout has already marked the digest as failed, clear the guard and rerun:
 
 ```bash
@@ -423,6 +469,11 @@ curl -I https://tg-bot-tanjah.sankoslides.com/health
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
+Notes:
+
+- `last_error_message` in `getWebhookInfo` can be historical even after recovery
+- if Telegram is responding normally and `pending_update_count` is `0`, an old `503` message alone does not prove the bot is still broken
+
 Verify pod-to-Redis connectivity from inside Kubernetes:
 
 ```bash
@@ -470,6 +521,44 @@ For a compact post-deploy checklist, you can also run:
 ```
 
 The script loads `/etc/adarkwa-study-bot/deploy.env` automatically when available and reads `TELEGRAM_BOT_TOKEN` from the `adarkwa-bot-secret` Kubernetes secret if you have not exported it in the shell.
+
+## 14. What Actually Requires Changes
+
+Use this as the operator decision table.
+
+Change `main` only:
+
+- normal application code changes
+- tests
+- manifests already tracked by the deploy script
+
+Change the VPS and then restart workloads:
+
+- Valkey password rotation
+- VPS private IP change
+- `REDIS_URL` cutover or correction
+- Cloudflare tunnel token rotation
+- `/etc/adarkwa-study-bot/deploy.env` changes
+
+Change Kubernetes secret only:
+
+- Telegram token rotation
+- database URL rotation
+- Redis password or host change
+- webhook secret rotation
+- R2 key rotation
+
+Change Cloudflare only:
+
+- tunnel token rotation
+- public hostname changes
+- tunnel origin target changes
+
+Current expected steady state after any healthy rollout:
+
+- `kubectl get pods -n adarkwa-study-bot` shows `1/1 Running` for webhook and worker
+- `curl -I https://tg-bot-tanjah.sankoslides.com/health` returns `200`
+- `getWebhookInfo` shows `https://tg-bot-tanjah.sankoslides.com/webhook`
 
 You do not need:
 
