@@ -42,11 +42,21 @@ class AsyncCatalogService:
 
 
 class FakeProfileService:
-    async def update_study_profile(self, *args, **kwargs):
-        return None
+    def __init__(self):
+        self.persist_calls = []
 
-    async def mark_onboarding_complete(self, *args, **kwargs):
-        return SimpleNamespace()
+    async def persist_profile_record(self, payload: dict):
+        self.persist_calls.append(payload)
+        return SimpleNamespace(
+            id=payload["user_id"],
+            display_name=payload.get("display_name"),
+            faculty_code=payload.get("faculty_code"),
+            program_code=payload.get("program_code"),
+            level_code=payload.get("level_code"),
+            semester_code=payload.get("semester_code"),
+            preferred_course_code=payload.get("preferred_course_code"),
+            onboarding_completed=payload.get("onboarding_completed", False),
+        )
 
 
 class FakeStateStore:
@@ -106,11 +116,12 @@ async def test_profile_setup_advances_from_faculty_to_program():
 async def test_profile_setup_completion_sets_first_semester_in_cached_profile():
     query = FakeQuery("profile:start:setup")
     state_store = FakeStateStore()
+    profile_service = FakeProfileService()
     context = SimpleNamespace(
         application=SimpleNamespace(
             bot_data={
                 "catalog_service": FakeCatalogService(),
-                "profile_service": FakeProfileService(),
+                "profile_service": profile_service,
                 "state_store": state_store,
             }
         ),
@@ -130,6 +141,7 @@ async def test_profile_setup_completion_sets_first_semester_in_cached_profile():
     await handle_profile_setup_callback(update, context)
 
     assert state_store.saved_profiles[-1].semester_code == "first"
+    assert profile_service.persist_calls[-1]["onboarding_completed"] is True
     assert "First Semester" in query.calls[-1]["text"]
 
 
@@ -158,3 +170,29 @@ async def test_profile_setup_advances_with_async_catalog_service():
     await handle_profile_setup_callback(update, context)
 
     assert "Choose your program" in query.calls[-1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_profile_setup_shows_catalog_unavailable_when_no_faculties_exist():
+    class EmptyCatalogService:
+        async def get_faculties(self):
+            return []
+
+    query = FakeQuery("profile:start:setup")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "catalog_service": EmptyCatalogService(),
+                "profile_service": FakeProfileService(),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42, first_name="Kevin", full_name="Kevin Doe"),
+    )
+
+    await handle_profile_setup_callback(update, context)
+
+    assert "catalog is unavailable" in query.calls[-1]["text"].lower()

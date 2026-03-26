@@ -6,6 +6,18 @@ from src.bot.handlers.start import start_command
 from src.infra.redis.state_store import UserProfileRecord
 
 
+class FakeProfileService:
+    def __init__(self, user):
+        self.user = user
+        self.calls = []
+
+    async def load_or_initialize_user(
+        self, telegram_user_id: int, display_name: str | None = None
+    ):
+        self.calls.append((telegram_user_id, display_name))
+        return self.user
+
+
 class FakeStateStore:
     def __init__(self, user=None):
         self.user = user
@@ -44,16 +56,9 @@ class FakeMessage:
 
 @pytest.mark.asyncio
 async def test_start_routes_new_user_to_setup(monkeypatch):
-    async def mock_persist_user_profile(*args, **kwargs):
-        return None
-
     async def mock_record_analytics_event(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(
-        "src.bot.handlers.start.enqueue_persist_user_profile",
-        mock_persist_user_profile,
-    )
     monkeypatch.setattr(
         "src.bot.handlers.start.enqueue_record_analytics_event",
         mock_record_analytics_event,
@@ -67,12 +72,20 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
         full_name="Kevin Doe",
     )
     state_store = FakeStateStore()
+    profile_service = FakeProfileService(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            onboarding_completed=False,
+        )
+    )
     scheduler = FakeScheduler()
     context = SimpleNamespace(
         application=SimpleNamespace(
             bot_data={
                 "state_store": state_store,
                 "background_scheduler": scheduler,
+                "profile_service": profile_service,
             }
         ),
         user_data={},
@@ -83,23 +96,16 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
 
     assert message.calls
     assert "set up your study profile" in message.calls[0]["text"].lower()
-    assert state_store.saved_profiles
-    assert len(scheduler.calls) == 2
+    assert profile_service.calls == [(42, "Kevin")]
+    assert len(scheduler.calls) == 1
     assert context.user_data["active_interactive_message_id"] == 1
 
 
 @pytest.mark.asyncio
 async def test_start_routes_returning_user_to_home(monkeypatch):
-    async def mock_persist_user_profile(*args, **kwargs):
-        return None
-
     async def mock_record_analytics_event(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(
-        "src.bot.handlers.start.enqueue_persist_user_profile",
-        mock_persist_user_profile,
-    )
     monkeypatch.setattr(
         "src.bot.handlers.start.enqueue_record_analytics_event",
         mock_record_analytics_event,
@@ -122,12 +128,14 @@ async def test_start_routes_returning_user_to_home(monkeypatch):
         preferred_course_code="calculus",
         has_active_quiz=False,
     )
+    profile_service = FakeProfileService(stored_user)
     scheduler = FakeScheduler()
     context = SimpleNamespace(
         application=SimpleNamespace(
             bot_data={
                 "state_store": FakeStateStore(stored_user),
                 "background_scheduler": scheduler,
+                "profile_service": profile_service,
             }
         ),
         user_data={},
@@ -139,22 +147,16 @@ async def test_start_routes_returning_user_to_home(monkeypatch):
     assert message.calls
     assert "study home" in message.calls[0]["text"].lower()
     assert "semester: first" in message.calls[0]["text"].lower()
-    assert len(scheduler.calls) == 2
+    assert profile_service.calls == [(42, "Kevin")]
+    assert len(scheduler.calls) == 1
     assert context.user_data["active_interactive_message_id"] == 1
 
 
 @pytest.mark.asyncio
 async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
-    async def mock_persist_user_profile(*args, **kwargs):
-        return None
-
     async def mock_record_analytics_event(*args, **kwargs):
         return None
 
-    monkeypatch.setattr(
-        "src.bot.handlers.start.enqueue_persist_user_profile",
-        mock_persist_user_profile,
-    )
     monkeypatch.setattr(
         "src.bot.handlers.start.enqueue_record_analytics_event",
         mock_record_analytics_event,
@@ -167,10 +169,18 @@ async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
         first_name="Kevin",
         full_name="Kevin Doe",
     )
+    profile_service = FakeProfileService(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            onboarding_completed=False,
+        )
+    )
     context = SimpleNamespace(
         application=SimpleNamespace(
             bot_data={
                 "state_store": FakeStateStore(),
+                "profile_service": profile_service,
             }
         ),
         user_data={},
@@ -181,3 +191,46 @@ async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
 
     assert message.calls
     assert "set up your study profile" in message.calls[0]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_start_uses_profile_service_when_cache_is_empty(monkeypatch):
+    async def mock_record_analytics_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "src.bot.handlers.start.enqueue_record_analytics_event",
+        mock_record_analytics_event,
+    )
+
+    message = FakeMessage()
+    user = SimpleNamespace(
+        id=42,
+        username="kevin",
+        first_name="Kevin",
+        full_name="Kevin Doe",
+    )
+    stored_user = UserProfileRecord(
+        id=42,
+        onboarding_completed=True,
+        faculty_code="engineering",
+        program_code="mechanical-engineering",
+        level_code="100",
+        semester_code="first",
+    )
+    profile_service = FakeProfileService(stored_user)
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "state_store": FakeStateStore(),
+                "profile_service": profile_service,
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(effective_user=user, message=message)
+
+    await start_command(update, context)
+
+    assert "study home" in message.calls[0]["text"].lower()
+    assert profile_service.calls == [(42, "Kevin")]

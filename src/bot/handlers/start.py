@@ -9,7 +9,6 @@ from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
 from src.infra.redis.state_store import UserProfileRecord
 from src.tasks.arq_client import (
-    enqueue_persist_user_profile,
     enqueue_record_analytics_event,
 )
 
@@ -56,33 +55,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     profile_service = _get_profile_service(context)
     home_service = _get_home_service(context)
     state_store = _get_state_store(context)
-    user = None
-    if state_store is not None:
-        user = await state_store.get_user_profile(telegram_user.id)
-
-    if user is None:
-        user = UserProfileRecord(
-            id=telegram_user.id,
-            display_name=telegram_user.first_name or telegram_user.full_name,
-            onboarding_completed=False,
-        )
-        if state_store is not None:
-            await state_store.set_user_profile(user)
-        persist_payload = {
-            "user_id": telegram_user.id,
-            "display_name": telegram_user.first_name or telegram_user.full_name,
-        }
-    else:
-        persist_payload = {
-            "user_id": telegram_user.id,
-            "display_name": telegram_user.first_name or telegram_user.full_name,
-            "onboarding_completed": getattr(user, "onboarding_completed", False),
-            "faculty_code": getattr(user, "faculty_code", None),
-            "program_code": getattr(user, "program_code", None),
-            "level_code": getattr(user, "level_code", None),
-            "semester_code": getattr(user, "semester_code", None),
-            "preferred_course_code": getattr(user, "preferred_course_code", None),
-        }
+    user = await profile_service.load_or_initialize_user(
+        telegram_user.id,
+        display_name=telegram_user.first_name or telegram_user.full_name,
+    )
 
     if not getattr(user, "onboarding_completed", False):
         reply = await update.message.reply_text(
@@ -106,9 +82,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if scheduler is None:
         return
 
-    scheduler.schedule_coroutine(
-        enqueue_persist_user_profile(persist_payload)
-    )
     if state_store is not None:
         should_track = await state_store.claim_analytics_event(
             telegram_user.id,

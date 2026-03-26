@@ -9,7 +9,6 @@ from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
 from src.infra.redis.state_store import UserProfileRecord
-from src.tasks.arq_client import enqueue_persist_user_profile
 
 SETUP_ORDER = ["faculty", "program", "level"]
 STATE_KEY = "profile_setup_state"
@@ -102,6 +101,18 @@ def _prompt_for_step(step: str) -> str:
     }[step]
 
 
+def _empty_options_message(step: str) -> str:
+    if step == "faculty":
+        return (
+            "Study catalog is unavailable right now, so profile setup cannot continue.\n\n"
+            "Please seed or restore the catalog data, then try again."
+        )
+    return (
+        "No study options are available for this step right now.\n\n"
+        "Please go back or try again later."
+    )
+
+
 async def _options_for_step(
     context: ContextTypes.DEFAULT_TYPE,
     state: dict[str, str | None],
@@ -178,7 +189,10 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
     state["current_step"] = step
 
     options = await _options_for_step(context, state, step)
-    text = f"{_selection_summary(labels)}\n\n{_prompt_for_step(step)}"
+    if options:
+        text = f"{_selection_summary(labels)}\n\n{_prompt_for_step(step)}"
+    else:
+        text = f"{_selection_summary(labels)}\n\n{_empty_options_message(step)}"
     markup = build_setup_keyboard(
         step,
         options,
@@ -195,19 +209,21 @@ async def _complete_setup(
     state = context.user_data.get(STATE_KEY, _initial_state())
     labels = context.user_data.get(LABEL_KEY, _initial_labels())
     home_service = _get_home_service(context)
+    profile_service = _get_profile_service(context)
     state_store = _get_state_store(context)
-    scheduler = _get_background_scheduler(context)
 
-    profile = UserProfileRecord(
-        id=update.effective_user.id,
-        display_name=update.effective_user.first_name or update.effective_user.full_name,
-        faculty_code=state["faculty"],
-        program_code=state["program"],
-        level_code=state["level"],
-        semester_code="first",
-        preferred_course_code=None,
-        onboarding_completed=True,
-    )
+    profile_payload = {
+        "user_id": update.effective_user.id,
+        "display_name": update.effective_user.first_name or update.effective_user.full_name,
+        "faculty_code": state["faculty"],
+        "program_code": state["program"],
+        "level_code": state["level"],
+        "semester_code": "first",
+        "preferred_course_code": None,
+        "onboarding_completed": True,
+    }
+    persisted_profile = await profile_service.persist_profile_record(profile_payload)
+    profile = UserProfileRecord.from_user(persisted_profile, has_active_quiz=False)
     if state_store is not None:
         await state_store.set_user_profile(profile)
 
@@ -229,21 +245,6 @@ async def _complete_setup(
         reply_markup=build_home_keyboard(home["buttons"]),
     )
     _remember_active_message(context, query)
-    if scheduler is not None:
-        scheduler.schedule_coroutine(
-            enqueue_persist_user_profile(
-                {
-                    "user_id": profile.id,
-                    "display_name": profile.display_name,
-                    "faculty_code": profile.faculty_code,
-                    "program_code": profile.program_code,
-                    "level_code": profile.level_code,
-                    "semester_code": profile.semester_code,
-                    "preferred_course_code": profile.preferred_course_code,
-                    "onboarding_completed": True,
-                }
-            )
-        )
 
 
 async def handle_profile_setup_callback(
