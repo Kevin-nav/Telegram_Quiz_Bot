@@ -426,6 +426,73 @@ async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback
 
 
 @pytest.mark.asyncio
+async def test_latex_question_uses_selected_asset_variant_and_adjusts_correct_option():
+    store = InteractiveStateStore(FakeRedis())
+    adaptive_service = FakeAdaptiveLearningService(
+        question_rows=[
+            SimpleNamespace(
+                id=17,
+                question_key="logic-q1",
+                question_text="Rendered from image",
+                options=["True", "False"],
+                correct_option_text="True",
+                short_explanation="Review the statement.",
+                topic_id="truth-values",
+                scaled_score=1.2,
+                band=1,
+                cognitive_level="Understanding",
+                processing_complexity=1.0,
+                distractor_complexity=1.1,
+                note_reference=1.0,
+                question_type="T/F",
+                option_count=2,
+                has_latex=True,
+                explanation_asset_url="https://cdn.example.com/logic-q1-expl.png",
+                asset_variants=[
+                    SimpleNamespace(
+                        variant_index=0,
+                        option_order=[0, 1],
+                        question_asset_url="https://cdn.example.com/logic-q1-v0.png",
+                    ),
+                    SimpleNamespace(
+                        variant_index=1,
+                        option_order=[1, 0],
+                        question_asset_url="https://cdn.example.com/logic-q1-v1.png",
+                    ),
+                ],
+            ),
+        ]
+    )
+    service = QuizSessionService(
+        state_store=store,
+        adaptive_learning_service=adaptive_service,
+    )
+    bot = FakeBot()
+    scheduler = FakeScheduler()
+
+    session = await service.start_quiz(
+        bot=bot,
+        user_id=42,
+        chat_id=99,
+        course_id="logic",
+        course_name="Logic",
+        question_count=1,
+        schedule_background=scheduler,
+    )
+
+    assert session.questions[0].question_asset_url in {
+        "https://cdn.example.com/logic-q1-v0.png",
+        "https://cdn.example.com/logic-q1-v1.png",
+    }
+    if session.questions[0].config_index == 1:
+        assert session.questions[0].correct_option_id == 1
+        assert bot.photo_calls[0]["photo"] == "https://cdn.example.com/logic-q1-v1.png"
+    else:
+        assert session.questions[0].correct_option_id == 0
+        assert bot.photo_calls[0]["photo"] == "https://cdn.example.com/logic-q1-v0.png"
+
+
+@pytest.mark.asyncio
 async def test_poll_answer_non_latex_flow_sends_feedback_then_text_explanation():
     store = InteractiveStateStore(FakeRedis())
     adaptive_service = FakeAdaptiveLearningService(

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, JSON, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.infra.db.base import Base
 
@@ -48,4 +48,10 @@ class QuestionBank(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    asset_variants: Mapped[list["QuestionAssetVariant"]] = relationship(
+        "QuestionAssetVariant",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="QuestionAssetVariant.variant_index.asc()",
     )

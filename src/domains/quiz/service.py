@@ -402,10 +402,16 @@ class QuizSessionService:
         correct_option_id = options.index(question_row.correct_option_text)
         arrangement_hash = None
         config_index = selected_question.config_index
+        question_asset_url = getattr(question_row, "question_asset_url", None)
 
         if question_row.has_latex:
             if config_index is None:
                 config_index = arrange_options_latex(selected_question)
+            question_asset_url, correct_option_id = self._resolve_latex_variant(
+                question_row,
+                config_index=config_index,
+                default_correct_option_id=correct_option_id,
+            )
             options = self._latex_poll_options(question_row)
         else:
             options, arrangement_hash = arrange_options_non_latex(question_row)
@@ -428,7 +434,7 @@ class QuizSessionService:
             has_latex=question_row.has_latex,
             arrangement_hash=arrangement_hash,
             config_index=config_index,
-            question_asset_url=getattr(question_row, "question_asset_url", None),
+            question_asset_url=question_asset_url,
             explanation_asset_url=question_row.explanation_asset_url,
             time_allocated_seconds=self._calculate_time_allocated_seconds(
                 selected_question
@@ -475,6 +481,32 @@ class QuizSessionService:
     def _latex_poll_options(self, question) -> list[str]:
         option_count = len(question.options)
         return [chr(65 + index) for index in range(option_count)]
+
+    def _resolve_latex_variant(
+        self,
+        question_row,
+        *,
+        config_index: int,
+        default_correct_option_id: int,
+    ) -> tuple[str | None, int]:
+        asset_variants = list(getattr(question_row, "asset_variants", ()) or ())
+        matching_variant = next(
+            (
+                variant
+                for variant in asset_variants
+                if getattr(variant, "variant_index", None) == config_index
+            ),
+            None,
+        )
+        if matching_variant is None:
+            return getattr(question_row, "question_asset_url", None), default_correct_option_id
+
+        option_order = list(getattr(matching_variant, "option_order", ()) or ())
+        if default_correct_option_id in option_order:
+            correct_option_id = option_order.index(default_correct_option_id)
+        else:
+            correct_option_id = default_correct_option_id
+        return getattr(matching_variant, "question_asset_url", None), correct_option_id
 
     def _require_state_store(self) -> None:
         if self.state_store is None:

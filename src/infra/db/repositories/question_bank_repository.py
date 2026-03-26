@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import delete, select
+from sqlalchemy.orm import selectinload
 
 from src.infra.db.models.question_asset_variant import QuestionAssetVariant
 from src.infra.db.models.question_bank import QuestionBank
@@ -52,6 +53,7 @@ class QuestionBankRepository:
         async with self.session_factory() as session:
             result = await session.execute(
                 select(QuestionBank)
+                .options(selectinload(QuestionBank.asset_variants))
                 .where(
                     QuestionBank.course_id == course_id,
                     QuestionBank.status == "ready",
