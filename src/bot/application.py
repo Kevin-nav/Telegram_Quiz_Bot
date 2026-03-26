@@ -82,7 +82,10 @@ def get_application() -> Application:
         CallbackQueryHandler(handle_profile_setup_callback, pattern=r"^profile:")
     )
     application.add_handler(
-        CallbackQueryHandler(handle_home_callback, pattern=r"^(home:|quiz:length:)")
+        CallbackQueryHandler(
+            handle_home_callback,
+            pattern=r"^(home:|quiz:course:|quiz:length:)",
+        )
     )
     application.add_handler(PollAnswerHandler(handle_poll_answer))
     application.add_error_handler(handle_application_error)
