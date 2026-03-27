@@ -34,7 +34,6 @@ def test_adaptive_runtime_models_have_expected_columns():
 
 
 def test_staff_access_models_have_expected_columns():
-    from src.infra.db.models.admin_session import AdminSession
     from src.infra.db.models.audit_log import AuditLog
     from src.infra.db.models.permission import Permission
     from src.infra.db.models.staff_role import StaffRole
@@ -54,7 +53,6 @@ def test_staff_access_models_have_expected_columns():
         column.name for column in StaffRolePermission.__table__.columns
     }
     audit_log_columns = {column.name for column in AuditLog.__table__.columns}
-    admin_session_columns = {column.name for column in AdminSession.__table__.columns}
 
     assert {
         "id",
@@ -71,15 +69,6 @@ def test_staff_access_models_have_expected_columns():
     assert {"id", "staff_user_id", "permission_id"} <= staff_user_permission_columns
     assert {"id", "staff_role_id", "permission_id"} <= staff_role_permission_columns
     assert {"id", "actor_staff_user_id", "action", "entity_type", "entity_id", "created_at"} <= audit_log_columns
-    assert {
-        "id",
-        "staff_user_id",
-        "session_token_hash",
-        "expires_at",
-        "last_seen_at",
-        "revoked_at",
-        "created_at",
-    } <= admin_session_columns
 
 
 def test_catalog_models_have_expected_columns():

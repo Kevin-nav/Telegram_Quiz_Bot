@@ -1,5 +1,4 @@
 from src.infra.db.models.adaptive_review_flag import AdaptiveReviewFlag
-from src.infra.db.models.admin_session import AdminSession
 from src.infra.db.models.catalog_course import CatalogCourse
 from src.infra.db.models.catalog_faculty import CatalogFaculty
 from src.infra.db.models.catalog_level import CatalogLevel
@@ -27,7 +26,6 @@ from src.infra.db.models.webhook_event import WebhookEvent
 __all__ = [
     "AnalyticsEvent",
     "AdaptiveReviewFlag",
-    "AdminSession",
     "AuditLog",
     "CatalogCourse",
     "CatalogFaculty",
