@@ -58,10 +58,8 @@ def test_staff_access_models_have_expected_columns():
         "id",
         "email",
         "is_active",
-        "password_hash",
-        "must_change_password",
-        "password_updated_at",
-        "last_login_at",
+        "created_at",
+        "updated_at",
     } <= staff_user_columns
     assert {"id", "code", "name", "created_at"} <= staff_role_columns
     assert {"id", "code", "name", "created_at"} <= permission_columns
