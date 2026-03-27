@@ -43,6 +43,10 @@ async def test_quiz_state_and_poll_map_round_trip():
                 correct_option_id=1,
             )
         ],
+        question_action_message_id=301,
+        answer_action_message_id=302,
+        last_answered_question_id="q0",
+        last_answered_question_index=0,
     )
     await store.set_quiz_session(session)
     await store.set_poll_map(
@@ -61,6 +65,10 @@ async def test_quiz_state_and_poll_map_round_trip():
     assert loaded_session is not None
     assert loaded_session.course_name == "Calculus"
     assert loaded_session.current_question().question_id == "q1"
+    assert loaded_session.question_action_message_id == 301
+    assert loaded_session.answer_action_message_id == 302
+    assert loaded_session.last_answered_question_id == "q0"
+    assert loaded_session.last_answered_question_index == 0
     assert poll_map is not None
     assert poll_map.session_id == "session-1"
 
@@ -148,3 +156,44 @@ async def test_catalog_cache_bulk_invalidation_clears_all_tracked_keys():
 
     assert await store.get_catalog_faculties() is None
     assert await store.get_catalog_programs("engineering") is None
+
+
+@pytest.mark.asyncio
+async def test_report_draft_round_trip_and_clear():
+    store = InteractiveStateStore(FakeRedis())
+    draft = {
+        "user_id": 42,
+        "session_id": "session-1",
+        "question_key": "q1",
+        "question_index": 0,
+        "report_scope": "question",
+        "report_reason": "question_unclear",
+    }
+
+    await store.set_report_draft(42, draft)
+    loaded = await store.get_report_draft(42)
+    await store.clear_report_draft(42)
+    cleared = await store.get_report_draft(42)
+
+    assert loaded == draft
+    assert cleared is None
+
+
+@pytest.mark.asyncio
+async def test_report_note_state_round_trip_and_clear():
+    store = InteractiveStateStore(FakeRedis())
+    payload = {
+        "user_id": 42,
+        "session_id": "session-1",
+        "question_key": "q1",
+        "report_scope": "answer",
+        "report_reason": "explanation_is_wrong",
+    }
+
+    await store.set_pending_report_note(42, payload)
+    loaded = await store.get_pending_report_note(42)
+    await store.clear_pending_report_note(42)
+    cleared = await store.get_pending_report_note(42)
+
+    assert loaded == payload
+    assert cleared is None

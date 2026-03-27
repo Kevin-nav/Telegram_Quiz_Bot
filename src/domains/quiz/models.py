@@ -26,6 +26,10 @@ class QuizQuestion:
     presented_at: datetime | None = None
     question_asset_url: str | None = None
     explanation_asset_url: str | None = None
+    selected_option_ids: list[int] | None = None
+    selected_option_text: str | None = None
+    was_answered_correctly: bool | None = None
+    time_taken_seconds: float | None = None
 
     @classmethod
     def from_dict(cls, payload: dict) -> "QuizQuestion":
@@ -54,6 +58,12 @@ class QuizQuestion:
             ),
             question_asset_url=payload.get("question_asset_url"),
             explanation_asset_url=payload.get("explanation_asset_url"),
+            selected_option_ids=list(payload["selected_option_ids"])
+            if payload.get("selected_option_ids") is not None
+            else None,
+            selected_option_text=payload.get("selected_option_text"),
+            was_answered_correctly=payload.get("was_answered_correctly"),
+            time_taken_seconds=payload.get("time_taken_seconds"),
         )
 
     def to_dict(self) -> dict:
@@ -75,6 +85,10 @@ class QuizSessionState:
     current_poll_id: str | None = None
     status: str = "active"
     score: int = 0
+    question_action_message_id: int | None = None
+    answer_action_message_id: int | None = None
+    last_answered_question_id: str | None = None
+    last_answered_question_index: int | None = None
 
     @classmethod
     def from_dict(cls, payload: dict) -> "QuizSessionState":
@@ -92,6 +106,10 @@ class QuizSessionState:
             current_poll_id=payload.get("current_poll_id"),
             status=payload.get("status", "active"),
             score=payload.get("score", 0),
+            question_action_message_id=payload.get("question_action_message_id"),
+            answer_action_message_id=payload.get("answer_action_message_id"),
+            last_answered_question_id=payload.get("last_answered_question_id"),
+            last_answered_question_index=payload.get("last_answered_question_index"),
         )
 
     def to_dict(self) -> dict:
@@ -106,6 +124,10 @@ class QuizSessionState:
             "current_poll_id": self.current_poll_id,
             "status": self.status,
             "score": self.score,
+            "question_action_message_id": self.question_action_message_id,
+            "answer_action_message_id": self.answer_action_message_id,
+            "last_answered_question_id": self.last_answered_question_id,
+            "last_answered_question_index": self.last_answered_question_index,
         }
 
     def current_question(self) -> QuizQuestion | None:

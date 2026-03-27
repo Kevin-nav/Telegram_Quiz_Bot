@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from collections import defaultdict
+
+from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
+
+
+class PerformanceService:
+    def __init__(
+        self,
+        question_attempt_repository: QuestionAttemptRepository | None = None,
+    ):
+        self.question_attempt_repository = (
+            question_attempt_repository or QuestionAttemptRepository()
+        )
+
+    async def get_summary(self, user_id: int) -> dict:
+        attempts = await self.question_attempt_repository.list_attempts_for_user(
+            user_id=user_id
+        )
+        return self.build_summary_from_attempts(attempts)
+
+    def build_summary_from_attempts(self, attempts: list) -> dict:
+        if not attempts:
+            return {
+                "quiz_count": 0,
+                "attempt_count": 0,
+                "accuracy_percent": 0,
+                "average_time_seconds": 0.0,
+                "strongest_course": None,
+                "weakest_course": None,
+                "recommendation": "Finish a quiz to unlock your study insights.",
+            }
+
+        quiz_count = len({attempt.session_id for attempt in attempts})
+        attempt_count = len(attempts)
+        correct_count = sum(1 for attempt in attempts if attempt.is_correct)
+        accuracy_percent = round((correct_count / attempt_count) * 100)
+        timed_attempts = [
+            float(attempt.time_taken_seconds)
+            for attempt in attempts
+            if attempt.time_taken_seconds is not None
+        ]
+        average_time_seconds = round(
+            sum(timed_attempts) / len(timed_attempts), 1
+        ) if timed_attempts else 0.0
+
+        course_buckets: dict[str, list[bool]] = defaultdict(list)
+        for attempt in attempts:
+            course_buckets[attempt.course_id].append(bool(attempt.is_correct))
+
+        ranked_courses = sorted(
+            (
+                (
+                    round(sum(1 for result in results if result) / len(results), 4),
+                    course_id,
+                )
+                for course_id, results in course_buckets.items()
+            ),
+            key=lambda item: (item[0], item[1]),
+        )
+        strongest_course = ranked_courses[-1][1].replace("-", " ").title()
+        weakest_course = ranked_courses[0][1].replace("-", " ").title()
+
+        recommendation = (
+            f"Review {weakest_course} next."
+            if weakest_course != strongest_course
+            else f"Keep reinforcing {strongest_course} with another round."
+        )
+
+        return {
+            "quiz_count": quiz_count,
+            "attempt_count": attempt_count,
+            "accuracy_percent": accuracy_percent,
+            "average_time_seconds": average_time_seconds,
+            "strongest_course": strongest_course,
+            "weakest_course": weakest_course,
+            "recommendation": recommendation,
+        }

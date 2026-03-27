@@ -8,16 +8,33 @@ def test_analytics_event_model_has_expected_columns():
 
 def test_adaptive_runtime_models_have_expected_columns():
     from src.infra.db.models.adaptive_review_flag import AdaptiveReviewFlag
+    from src.infra.db.models.question_report import QuestionReport
     from src.infra.db.models.student_question_srs import StudentQuestionSrs
 
     review_columns = {column.name for column in AdaptiveReviewFlag.__table__.columns}
+    question_report_columns = {column.name for column in QuestionReport.__table__.columns}
     srs_columns = {column.name for column in StudentQuestionSrs.__table__.columns}
 
     assert {"id", "question_id", "flag_type", "reason", "status", "created_at"} <= review_columns
+    assert {
+        "id",
+        "user_id",
+        "session_id",
+        "course_id",
+        "question_id",
+        "question_key",
+        "question_index",
+        "report_scope",
+        "report_reason",
+        "report_note",
+        "metadata",
+        "created_at",
+    } <= question_report_columns
     assert {"id", "user_id", "course_id", "question_id", "box", "created_at"} <= srs_columns
 
 
 def test_staff_access_models_have_expected_columns():
+    from src.infra.db.models.admin_session import AdminSession
     from src.infra.db.models.audit_log import AuditLog
     from src.infra.db.models.permission import Permission
     from src.infra.db.models.staff_role import StaffRole
@@ -37,14 +54,32 @@ def test_staff_access_models_have_expected_columns():
         column.name for column in StaffRolePermission.__table__.columns
     }
     audit_log_columns = {column.name for column in AuditLog.__table__.columns}
+    admin_session_columns = {column.name for column in AdminSession.__table__.columns}
 
-    assert {"id", "email", "is_active"} <= staff_user_columns
+    assert {
+        "id",
+        "email",
+        "is_active",
+        "password_hash",
+        "must_change_password",
+        "password_updated_at",
+        "last_login_at",
+    } <= staff_user_columns
     assert {"id", "code", "name", "created_at"} <= staff_role_columns
     assert {"id", "code", "name", "created_at"} <= permission_columns
     assert {"id", "staff_user_id", "staff_role_id"} <= staff_user_role_columns
     assert {"id", "staff_user_id", "permission_id"} <= staff_user_permission_columns
     assert {"id", "staff_role_id", "permission_id"} <= staff_role_permission_columns
     assert {"id", "actor_staff_user_id", "action", "entity_type", "entity_id", "created_at"} <= audit_log_columns
+    assert {
+        "id",
+        "staff_user_id",
+        "session_token_hash",
+        "expires_at",
+        "last_seen_at",
+        "revoked_at",
+        "created_at",
+    } <= admin_session_columns
 
 
 def test_catalog_models_have_expected_columns():

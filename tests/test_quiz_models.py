@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from src.domains.quiz.models import QuizQuestion
+from src.domains.quiz.models import QuizQuestion, QuizSessionState
 
 
 def test_quiz_question_supports_runtime_arrangement_metadata():
@@ -45,3 +45,34 @@ def test_quiz_question_supports_runtime_arrangement_metadata():
     assert restored.note_reference == 1.4
     assert restored.time_allocated_seconds == 90
     assert restored.presented_at == datetime(2026, 3, 25, 12, 0, tzinfo=UTC)
+
+
+def test_quiz_session_supports_report_action_metadata():
+    session = QuizSessionState(
+        session_id="session-1",
+        user_id=42,
+        chat_id=99,
+        course_id="linear-electronics",
+        course_name="Linear Electronics",
+        questions=[
+            QuizQuestion(
+                question_id="q1",
+                source_question_id=17,
+                prompt="Q",
+                options=["A", "B"],
+                correct_option_id=0,
+            )
+        ],
+        question_action_message_id=301,
+        answer_action_message_id=302,
+        last_answered_question_id="q1",
+        last_answered_question_index=0,
+    )
+
+    payload = session.to_dict()
+    restored = QuizSessionState.from_dict(payload)
+
+    assert restored.question_action_message_id == 301
+    assert restored.answer_action_message_id == 302
+    assert restored.last_answered_question_id == "q1"
+    assert restored.last_answered_question_index == 0

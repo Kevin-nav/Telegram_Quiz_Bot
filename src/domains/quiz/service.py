@@ -6,6 +6,15 @@ from uuid import uuid4
 
 from telegram import PollAnswer
 
+from src.bot.copy import (
+    build_answer_action_prompt,
+    build_question_action_prompt,
+    build_quiz_completion_message,
+)
+from src.bot.keyboards import (
+    build_answer_action_keyboard,
+    build_question_action_keyboard,
+)
 from src.domains.adaptive.arrangement import (
     arrange_options_latex,
     arrange_options_non_latex,
@@ -161,6 +170,10 @@ class QuizSessionService:
             if is_correct:
                 session.score += 1
 
+            question.selected_option_ids = selected_option_ids
+            question.selected_option_text = selected_option_text
+            question.was_answered_correctly = is_correct
+            question.time_taken_seconds = time_taken_seconds
             session.current_poll_id = None
 
             schedule_background(
@@ -211,6 +224,9 @@ class QuizSessionService:
                 is_correct=is_correct,
                 bot=bot,
             )
+            session.last_answered_question_id = question.question_id
+            session.last_answered_question_index = poll_map.question_index
+            await self._send_answer_actions(session, bot=bot)
 
             session.current_index += 1
 
@@ -220,9 +236,8 @@ class QuizSessionService:
                 await self.state_store.clear_active_quiz(session.user_id)
                 await bot.send_message(
                     chat_id=session.chat_id,
-                    text=(
-                        f"Quiz complete for {session.course_name}.\n\n"
-                        f"Score: {session.score}/{session.total_questions}"
+                    text=build_quiz_completion_message(
+                        self._build_completion_summary(session)
                     ),
                 )
                 schedule_background(
@@ -293,6 +308,7 @@ class QuizSessionService:
             correct_option_id=question.correct_option_id,
         )
         session.current_poll_id = message.poll.id
+        session.answer_action_message_id = None
         await self.state_store.set_quiz_session(session)
         await self.state_store.set_poll_map(
             PollMapRecord(
@@ -303,6 +319,14 @@ class QuizSessionService:
                 user_id=session.user_id,
             )
         )
+        action_message = await self._send_action_message(
+            bot=bot,
+            chat_id=session.chat_id,
+            text=build_question_action_prompt(),
+            reply_markup=build_question_action_keyboard(),
+        )
+        session.question_action_message_id = getattr(action_message, "message_id", None)
+        await self.state_store.set_quiz_session(session)
 
     async def _select_questions(
         self,
@@ -472,6 +496,87 @@ class QuizSessionService:
         if question.explanation:
             return f"{feedback}\n\nExplanation: {question.explanation}"
         return feedback
+
+    async def _send_answer_actions(self, session: QuizSessionState, *, bot) -> None:
+        message = await self._send_action_message(
+            bot=bot,
+            chat_id=session.chat_id,
+            text=build_answer_action_prompt(),
+            reply_markup=build_answer_action_keyboard(),
+        )
+        session.answer_action_message_id = getattr(message, "message_id", None)
+
+    async def _send_action_message(self, *, bot, chat_id: int, text: str, reply_markup):
+        try:
+            return await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+        except TypeError:
+            return await bot.send_message(chat_id=chat_id, text=text)
+
+    def _build_completion_summary(self, session: QuizSessionState) -> dict:
+        answered_questions = [
+            question
+            for question in session.questions
+            if question.was_answered_correctly is not None
+        ]
+        answered_count = len(answered_questions)
+        accuracy_percent = (
+            round((session.score / answered_count) * 100) if answered_count else 0
+        )
+        average_time_seconds = round(
+            sum(question.time_taken_seconds or 0 for question in answered_questions)
+            / answered_count,
+            1,
+        ) if answered_count else 0.0
+
+        topic_rows: dict[str, list[bool]] = {}
+        for question in answered_questions:
+            topic = question.topic_id or "General"
+            topic_rows.setdefault(topic, []).append(bool(question.was_answered_correctly))
+
+        strongest_topic = None
+        weakest_topic = None
+        if topic_rows:
+            ranked_topics = sorted(
+                (
+                    (
+                        round(sum(1 for value in values if value) / len(values), 4),
+                        topic,
+                    )
+                    for topic, values in topic_rows.items()
+                ),
+                key=lambda item: (item[0], item[1]),
+            )
+            weakest_topic = ranked_topics[0][1].replace("-", " ").title()
+            strongest_topic = ranked_topics[-1][1].replace("-", " ").title()
+
+        if accuracy_percent >= 85:
+            tier = "Excellent"
+        elif accuracy_percent >= 65:
+            tier = "Solid"
+        else:
+            tier = "Needs Review"
+
+        recommendation = (
+            f"Review {weakest_topic} before your next round."
+            if weakest_topic is not None
+            else "Keep building consistency with another short quiz."
+        )
+
+        return {
+            "course_name": session.course_name,
+            "score": session.score,
+            "total_questions": session.total_questions,
+            "accuracy_percent": accuracy_percent,
+            "tier": tier,
+            "average_time_seconds": average_time_seconds,
+            "strongest_topic": strongest_topic,
+            "weakest_topic": weakest_topic,
+            "recommendation": recommendation,
+        }
 
     def _correct_option_label(self, question) -> str:
         if question.has_latex:

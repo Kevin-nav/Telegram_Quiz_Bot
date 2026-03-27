@@ -10,7 +10,7 @@ from src.bot.copy import (
     build_incomplete_study_profile_message,
     build_missing_course_message,
     build_no_questions_available_message,
-    build_performance_placeholder,
+    build_performance_message,
     build_quiz_course_prompt,
 )
 from src.bot.handlers.profile_setup import LABEL_KEY, STATE_KEY
@@ -24,6 +24,7 @@ from src.bot.keyboards import (
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
+from src.domains.performance.service import PerformanceService
 from src.domains.quiz_entry.service import QuizEntryService
 
 
@@ -82,6 +83,12 @@ def _get_quiz_session_service(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> QuizSessionService:
     return context.application.bot_data.get("quiz_session_service", QuizSessionService())
+
+
+def _get_performance_service(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> PerformanceService:
+    return context.application.bot_data.get("performance_service", PerformanceService())
 
 
 def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
@@ -320,8 +327,11 @@ async def handle_home_callback(
             return
 
         if action == "performance":
+            performance_summary = await _get_performance_service(context).get_summary(
+                update.effective_user.id
+            )
             await query.edit_message_text(
-                text=build_performance_placeholder(),
+                text=build_performance_message(performance_summary),
                 reply_markup=build_home_keyboard(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),

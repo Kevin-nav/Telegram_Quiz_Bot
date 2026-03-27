@@ -14,6 +14,7 @@ from src.workers.telegram_update import (
 )
 from src.workers.background_jobs import (
     generate_quiz_session as handle_generate_quiz_session,
+    persist_question_report as handle_persist_question_report,
     persist_quiz_attempt as handle_persist_quiz_attempt,
     persist_quiz_session_progress as handle_persist_quiz_session_progress,
     persist_user_profile as handle_persist_user_profile,
@@ -65,6 +66,10 @@ async def persist_quiz_session_progress(ctx: dict[str, Any], payload: dict) -> N
     await handle_persist_quiz_session_progress(payload, runtime=ctx["runtime"])
 
 
+async def persist_question_report(ctx: dict[str, Any], payload: dict) -> None:
+    await handle_persist_question_report(payload, runtime=ctx["runtime"])
+
+
 async def generate_quiz_session(ctx: dict[str, Any], payload: dict) -> None:
     await handle_generate_quiz_session(payload)
 
@@ -95,6 +100,7 @@ class WorkerSettings:
         record_analytics_event,
         persist_quiz_attempt,
         persist_quiz_session_progress,
+        persist_question_report,
         generate_quiz_session,
         rebuild_profile_cache,
         persist_user_profile,

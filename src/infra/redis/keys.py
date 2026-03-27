@@ -22,6 +22,14 @@ def poll_map_key(poll_id: str) -> str:
     return f"poll-map:{poll_id}"
 
 
+def report_draft_key(user_id: int) -> str:
+    return f"report-draft:{user_id}"
+
+
+def pending_report_note_key(user_id: int) -> str:
+    return f"pending-report-note:{user_id}"
+
+
 def quiz_session_lock_key(session_id: str) -> str:
     return f"lock:quiz-session:{session_id}"
 

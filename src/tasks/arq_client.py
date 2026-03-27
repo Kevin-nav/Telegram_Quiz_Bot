@@ -68,6 +68,11 @@ async def enqueue_persist_quiz_session_progress(payload: dict):
     await pool.enqueue_job("persist_quiz_session_progress", payload)
 
 
+async def enqueue_persist_question_report(payload: dict):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("persist_question_report", payload)
+
+
 async def enqueue_generate_quiz_session(payload: dict):
     pool = await get_arq_pool()
     await pool.enqueue_job("generate_quiz_session", payload)

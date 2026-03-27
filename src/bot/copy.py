@@ -35,6 +35,67 @@ def build_performance_placeholder() -> str:
     return "Performance summaries will show here once the home flow is fully wired."
 
 
+def build_question_action_prompt() -> str:
+    return "Need to flag this question?"
+
+
+def build_answer_action_prompt() -> str:
+    return "Not correct? Report this answer if the key or explanation is off."
+
+
+def build_report_reason_prompt(scope: str) -> str:
+    if scope == "question":
+        return "What is wrong with this question?"
+    return "What is wrong with this answer or explanation?"
+
+
+def build_report_note_prompt(scope: str) -> str:
+    if scope == "question":
+        return "Send any extra detail as your next message, or tap Skip note."
+    return "Send any extra detail about the answer issue as your next message, or tap Skip note."
+
+
+def build_report_confirmation_message() -> str:
+    return "Thanks. Your report has been submitted."
+
+
+def build_report_cancelled_message() -> str:
+    return "Report cancelled."
+
+
+def build_quiz_completion_message(summary: dict) -> str:
+    weakest_topic = summary.get("weakest_topic") or "No weak topic detected"
+    strongest_topic = summary.get("strongest_topic") or "No standout topic yet"
+    return (
+        f"Quiz complete for {summary['course_name']}.\n\n"
+        f"Score: {summary['score']}/{summary['total_questions']}\n"
+        f"Accuracy: {summary['accuracy_percent']}%\n"
+        f"Result: {summary['tier']}\n"
+        f"Average pace: {summary['average_time_seconds']}s per question\n"
+        f"Strongest topic: {strongest_topic}\n"
+        f"Weakest topic: {weakest_topic}\n"
+        f"Next step: {summary['recommendation']}"
+    )
+
+
+def build_performance_message(summary: dict | None) -> str:
+    if not summary or summary.get("attempt_count", 0) == 0:
+        return "No quiz history yet. Finish a quiz and your performance summary will appear here."
+
+    strongest_course = summary.get("strongest_course") or "Not enough data"
+    weakest_course = summary.get("weakest_course") or "Not enough data"
+    return (
+        "Performance\n\n"
+        f"Quizzes completed: {summary['quiz_count']}\n"
+        f"Questions answered: {summary['attempt_count']}\n"
+        f"Overall accuracy: {summary['accuracy_percent']}%\n"
+        f"Average response time: {summary['average_time_seconds']}s\n"
+        f"Strongest course: {strongest_course}\n"
+        f"Weakest course: {weakest_course}\n"
+        f"Focus next: {summary['recommendation']}"
+    )
+
+
 def build_quiz_ready_message(course_name: str | None, question_count: int) -> str:
     if course_name:
         return (

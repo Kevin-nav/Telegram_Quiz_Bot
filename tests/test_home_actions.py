@@ -50,6 +50,19 @@ class FakeQuizSessionService:
         return None
 
 
+class FakePerformanceService:
+    async def get_summary(self, user_id: int):
+        return {
+            "quiz_count": 3,
+            "attempt_count": 18,
+            "accuracy_percent": 72,
+            "average_time_seconds": 14.5,
+            "strongest_course": "Signals",
+            "weakest_course": "Linear Electronics",
+            "recommendation": "Review Linear Electronics next.",
+        }
+
+
 class FakeQuery:
     def __init__(self, data: str, *, message_id: int = 1):
         self.data = data
@@ -268,3 +281,26 @@ async def test_stale_home_callback_is_rejected_and_keyboard_is_cleared():
     assert query.answers[-1]["text"] == "This menu is out of date. Use the latest message."
     assert query.cleared_reply_markup == 1
     assert not query.calls
+
+
+@pytest.mark.asyncio
+async def test_home_performance_renders_real_summary():
+    user = _make_user()
+    query = FakeQuery("home:performance")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "performance_service": FakePerformanceService(),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert "overall accuracy: 72%" in query.calls[-1]["text"].lower()

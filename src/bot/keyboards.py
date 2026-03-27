@@ -5,6 +5,10 @@ from src.bot.callbacks import (
     profile_back_callback,
     profile_callback,
     profile_cancel_callback,
+    report_cancel_callback,
+    report_reason_callback,
+    report_skip_note_callback,
+    report_start_callback,
     quiz_course_callback,
     quiz_length_callback,
 )
@@ -72,3 +76,32 @@ def build_quiz_course_keyboard(
         rows.append([_button("Back", home_callback("start_quiz"))])
 
     return InlineKeyboardMarkup(rows)
+
+
+def build_question_action_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[_button("Report Question", report_start_callback("question"))]]
+    )
+
+
+def build_answer_action_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[_button("Not correct? Report", report_start_callback("answer"))]]
+    )
+
+
+def build_report_reason_keyboard(
+    scope: str, reasons: list[tuple[str, str]]
+) -> InlineKeyboardMarkup:
+    rows = [[_button(label, report_reason_callback(scope, reason))] for label, reason in reasons]
+    rows.append([_button("Cancel", report_cancel_callback(scope))])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_report_note_keyboard(scope: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [_button("Skip note", report_skip_note_callback(scope))],
+            [_button("Cancel", report_cancel_callback(scope))],
+        ]
+    )

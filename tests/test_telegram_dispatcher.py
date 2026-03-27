@@ -12,8 +12,10 @@ async def test_dispatcher_classifies_callbacks_and_poll_answers_inline():
     dispatcher = TelegramUpdateDispatcher(FakeRuntime())
 
     assert dispatcher.classify({"callback_query": {"id": "1"}}) == "inline"
+    assert dispatcher.classify({"callback_query": {"id": "1", "data": "report:start:question"}}) == "inline"
     assert dispatcher.classify({"poll_answer": {"poll_id": "1"}}) == "inline"
     assert dispatcher.classify({"message": {"text": "/start"}}) == "inline"
+    assert dispatcher.classify({"message": {"text": "This answer key is wrong"}}) == "inline"
 
 
 @pytest.mark.asyncio

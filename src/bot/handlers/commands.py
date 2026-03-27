@@ -5,10 +5,11 @@ from telegram.ext import ContextTypes
 
 from src.bot.copy import (
     build_help_message,
-    build_performance_placeholder,
+    build_performance_message,
 )
 from src.bot.keyboards import build_home_keyboard, build_quiz_length_keyboard
 from src.domains.home.service import HomeService
+from src.domains.performance.service import PerformanceService
 from src.domains.profile.service import ProfileService
 from src.domains.quiz_entry.service import QuizEntryService
 
@@ -45,6 +46,12 @@ def _get_quiz_entry_service(context: ContextTypes.DEFAULT_TYPE) -> QuizEntryServ
     return context.application.bot_data.get("quiz_entry_service", QuizEntryService())
 
 
+def _get_performance_service(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> PerformanceService:
+    return context.application.bot_data.get("performance_service", PerformanceService())
+
+
 def _course_name(user) -> str:
     course = getattr(user, "preferred_course_code", None)
     if not course:
@@ -79,9 +86,12 @@ async def performance_command(
         _build_home_profile(user),
         has_active_quiz=getattr(user, "has_active_quiz", False),
     )
+    performance_summary = await _get_performance_service(context).get_summary(
+        update.effective_user.id
+    )
 
     await update.message.reply_text(
-        text=build_performance_placeholder(),
+        text=build_performance_message(performance_summary),
         reply_markup=build_home_keyboard(home["buttons"]),
     )
 

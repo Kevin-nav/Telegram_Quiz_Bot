@@ -11,6 +11,7 @@ from src.domains.adaptive.service import AdaptiveLearningService
 from src.domains.adaptive.srs import advance_srs_box
 from src.analytics.internal_analytics import analytics
 from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
+from src.infra.db.repositories.question_report_repository import QuestionReportRepository
 from src.infra.db.repositories.adaptive_review_repository import AdaptiveReviewRepository
 from src.infra.db.repositories.student_course_state_repository import (
     StudentCourseStateRepository,
@@ -21,6 +22,7 @@ from src.infra.redis.idempotency import AdaptiveAttemptIdempotencyStore
 
 logger = logging.getLogger(__name__)
 question_attempt_repository = QuestionAttemptRepository()
+question_report_repository = QuestionReportRepository()
 adaptive_learning_service = AdaptiveLearningService()
 adaptive_review_repository = AdaptiveReviewRepository()
 student_course_state_repository = StudentCourseStateRepository()
@@ -283,6 +285,16 @@ async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
     await analytics.track_event(
         user_id=payload["user_id"],
         event_type="quiz_session_progress_persisted",
+        metadata=payload,
+    )
+
+
+async def persist_question_report(payload: dict, runtime=None) -> None:
+    logger.info("Persisting question report payload=%s", payload)
+    await question_report_repository.create_report(payload)
+    await analytics.track_event(
+        user_id=payload["user_id"],
+        event_type="question_report_persisted",
         metadata=payload,
     )
 

@@ -10,6 +10,7 @@ from src.domains.adaptive.review import (
 )
 from src.domains.adaptive.models import AdaptiveQuestionProfile
 from src.workers.background_jobs import (
+    persist_question_report,
     persist_quiz_attempt,
     persist_quiz_session_progress,
     review_distractor_patterns,
@@ -222,4 +223,35 @@ async def test_completed_quiz_progress_increments_quiz_counter():
         await persist_quiz_session_progress(payload)
 
     increment_counters.assert_awaited_once_with(42, "linear-electronics", quizzes=1)
+    track_event.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_persist_question_report_creates_row_and_tracks_event():
+    payload = {
+        "user_id": 42,
+        "session_id": "session-1",
+        "course_id": "linear-electronics",
+        "question_id": 17,
+        "question_key": "linear-electronics-q1",
+        "question_index": 0,
+        "report_scope": "answer",
+        "report_reason": "correct_answer_shown_is_wrong",
+        "report_note": "The keyed answer should be option B.",
+        "report_metadata": {"correct_option_text": "B"},
+    }
+
+    with (
+        patch(
+            "src.workers.background_jobs.question_report_repository.create_report",
+            new=AsyncMock(),
+        ) as create_report,
+        patch(
+            "src.workers.background_jobs.analytics.track_event",
+            new=AsyncMock(),
+        ) as track_event,
+    ):
+        await persist_question_report(payload)
+
+    create_report.assert_awaited_once_with(payload)
     track_event.assert_awaited_once()

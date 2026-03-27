@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from src.tasks.worker import process_telegram_update
+from src.tasks.worker import WorkerSettings, process_telegram_update
 
 
 @pytest.mark.asyncio
@@ -27,3 +27,9 @@ async def test_process_telegram_update():
 
         mock_de_json.assert_called_once_with(payload, "mock_bot")
         mock_app.process_update.assert_called_once_with("mock_update")
+
+
+def test_worker_registers_question_report_job():
+    function_names = {function.__name__ for function in WorkerSettings.functions}
+
+    assert "persist_question_report" in function_names

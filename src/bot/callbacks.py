@@ -48,3 +48,19 @@ def quiz_length_callback(length: int) -> str:
 
 def quiz_course_callback(course_code: str) -> str:
     return build_callback("quiz", "course", course_code)
+
+
+def report_start_callback(scope: str) -> str:
+    return build_callback("report", "start", scope)
+
+
+def report_reason_callback(scope: str, reason: str) -> str:
+    return build_callback("report", "reason", scope, reason)
+
+
+def report_skip_note_callback(scope: str) -> str:
+    return build_callback("report", "skip_note", scope)
+
+
+def report_cancel_callback(scope: str) -> str:
+    return build_callback("report", "cancel", scope)

@@ -63,3 +63,20 @@ class QuestionAttemptRepository:
             for attempt in result.scalars().all():
                 grouped[attempt.question_id].append(attempt)
             return dict(grouped)
+
+    async def list_attempts_for_user(
+        self,
+        *,
+        user_id: int,
+        limit: int | None = None,
+    ) -> list[QuestionAttempt]:
+        async with self.session_factory() as session:
+            statement = (
+                select(QuestionAttempt)
+                .where(QuestionAttempt.user_id == user_id)
+                .order_by(QuestionAttempt.created_at.desc(), QuestionAttempt.id.desc())
+            )
+            if limit is not None:
+                statement = statement.limit(limit)
+            result = await session.execute(statement)
+            return list(result.scalars().all())

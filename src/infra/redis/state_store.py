@@ -11,8 +11,10 @@ from src.infra.redis.keys import (
     adaptive_snapshot_key,
     adaptive_update_lock_key,
     analytics_dedupe_key,
+    pending_report_note_key,
     poll_map_key,
     question_bank_cache_key,
+    report_draft_key,
     quiz_session_key,
     quiz_session_lock_key,
     telegram_update_key,
@@ -24,6 +26,7 @@ USER_PROFILE_TTL_SECONDS = 30 * 60
 ACTIVE_QUIZ_TTL_SECONDS = 24 * 60 * 60
 QUIZ_SESSION_TTL_SECONDS = 24 * 60 * 60
 POLL_MAP_TTL_SECONDS = 60 * 60
+REPORT_DRAFT_TTL_SECONDS = 30 * 60
 LOCK_TTL_SECONDS = 15
 ADAPTIVE_SNAPSHOT_TTL_SECONDS = 10 * 60
 CATALOG_LOOKUP_TTL_SECONDS = 60 * 60
@@ -167,6 +170,44 @@ class InteractiveStateStore:
 
         await self._refresh_expiry(poll_map_key(poll_id), POLL_MAP_TTL_SECONDS)
         return PollMapRecord.from_dict(json.loads(payload))
+
+    async def set_report_draft(self, user_id: int, payload: dict) -> None:
+        await self.redis_client.set(
+            report_draft_key(user_id),
+            json.dumps(payload),
+            ex=REPORT_DRAFT_TTL_SECONDS,
+        )
+
+    async def get_report_draft(self, user_id: int) -> dict | None:
+        payload = await self.redis_client.get(report_draft_key(user_id))
+        if not payload:
+            return None
+
+        await self._refresh_expiry(report_draft_key(user_id), REPORT_DRAFT_TTL_SECONDS)
+        return json.loads(payload)
+
+    async def clear_report_draft(self, user_id: int) -> None:
+        await self._delete_key(report_draft_key(user_id))
+
+    async def set_pending_report_note(self, user_id: int, payload: dict) -> None:
+        await self.redis_client.set(
+            pending_report_note_key(user_id),
+            json.dumps(payload),
+            ex=REPORT_DRAFT_TTL_SECONDS,
+        )
+
+    async def get_pending_report_note(self, user_id: int) -> dict | None:
+        payload = await self.redis_client.get(pending_report_note_key(user_id))
+        if not payload:
+            return None
+
+        await self._refresh_expiry(
+            pending_report_note_key(user_id), REPORT_DRAFT_TTL_SECONDS
+        )
+        return json.loads(payload)
+
+    async def clear_pending_report_note(self, user_id: int) -> None:
+        await self._delete_key(pending_report_note_key(user_id))
 
     async def cache_question_bank(
         self, course_id: str, questions: list[QuizQuestion], ttl_seconds: int = 3600

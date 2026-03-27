@@ -16,6 +16,7 @@ class FakeBot:
         self.message_calls = []
         self.photo_calls = []
         self.events = []
+        self.message_id_seq = 1
 
     async def send_poll(
         self,
@@ -42,9 +43,19 @@ class FakeBot:
         self.events.append(("poll", poll_id))
         return SimpleNamespace(poll=SimpleNamespace(id=poll_id))
 
-    async def send_message(self, *, chat_id, text):
-        self.message_calls.append({"chat_id": chat_id, "text": text})
+    async def send_message(self, *, chat_id, text, reply_markup=None):
+        message_id = self.message_id_seq
+        self.message_id_seq += 1
+        self.message_calls.append(
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_markup": reply_markup,
+                "message_id": message_id,
+            }
+        )
         self.events.append(("message", text))
+        return SimpleNamespace(message_id=message_id)
 
     async def send_photo(self, *, chat_id, photo):
         self.photo_calls.append({"chat_id": chat_id, "photo": photo})
@@ -178,11 +189,13 @@ async def test_start_quiz_creates_state_and_sends_first_poll():
     assert active_session == session.session_id
     assert loaded_session is not None
     assert loaded_session.current_poll_id == "poll-1"
+    assert loaded_session.question_action_message_id is not None
     assert loaded_session.questions[0].presented_at is not None
     assert loaded_session.questions[0].time_allocated_seconds is not None
     assert loaded_session.questions[0].scaled_score == 2.0
     assert adaptive_service.calls[0]["course_id"] == "calculus"
     assert bot.poll_calls
+    assert bot.message_calls[-1]["text"] == "Need to flag this question?"
     assert not bot.photo_calls
     assert bot.poll_calls[0]["question"] == "What is the derivative of x^2?"
 
@@ -285,9 +298,11 @@ async def test_poll_answer_advances_quiz_without_db_dependency(monkeypatch):
     assert loaded_session is not None
     assert loaded_session.current_index == 1
     assert loaded_session.current_poll_id == "poll-2"
+    assert loaded_session.last_answered_question_id == first_question.question_id
     assert len(bot.poll_calls) == 2
-    assert bot.message_calls[0]["text"].startswith("Correct. Nice work.")
-    assert "Explanation:" in bot.message_calls[0]["text"]
+    assert bot.message_calls[1]["text"].startswith("Correct. Nice work.")
+    assert "Explanation:" in bot.message_calls[1]["text"]
+    assert bot.message_calls[2]["text"] == "Not correct? Report this answer if the key or explanation is off."
     assert attempt_jobs
     assert attempt_jobs[0].payload["time_taken_seconds"] is not None
     assert attempt_jobs[0].payload["time_allocated_seconds"] is not None
@@ -409,6 +424,7 @@ async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback
     assert bot.photo_calls[0]["photo"] == "https://cdn.example.com/linear-electronics-q1.png"
     assert bot.poll_calls[0]["question"] == "Choose the correct option."
     assert bot.poll_calls[0]["options"] == ["A", "B", "C", "D"]
+    assert bot.message_calls[1]["text"] == "Need to flag this question?"
 
     handled = await service.handle_poll_answer(
         bot=bot,
@@ -420,9 +436,10 @@ async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback
     )
 
     assert handled is True
-    assert bot.message_calls[1]["text"] == "Correct. Nice work."
+    assert bot.message_calls[2]["text"] == "Correct. Nice work."
     assert bot.photo_calls[1]["photo"] == "https://cdn.example.com/linear-electronics-q1-expl.png"
     assert "Quiz complete for Linear Electronics." in bot.message_calls[-1]["text"]
+    assert "Accuracy:" in bot.message_calls[-1]["text"]
 
 
 @pytest.mark.asyncio
@@ -549,6 +566,7 @@ async def test_poll_answer_non_latex_flow_sends_feedback_then_text_explanation()
         schedule_background=scheduler,
     )
 
-    assert "correct" in bot.message_calls[-2]["text"].lower()
-    assert "apply the power rule" in bot.message_calls[-2]["text"].lower()
+    assert "correct" in bot.message_calls[-3]["text"].lower()
+    assert "apply the power rule" in bot.message_calls[-3]["text"].lower()
+    assert "not correct? report this answer" in bot.message_calls[-2]["text"].lower()
     assert "Quiz complete for Calculus." in bot.message_calls[-1]["text"]
