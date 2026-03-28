@@ -335,4 +335,8 @@ async def test_home_performance_renders_real_summary():
 
     await handle_home_callback(update, context)
 
-    assert "overall accuracy: 72%" in query.calls[-1]["text"].lower()
+    text = query.calls[-1]["text"]
+    assert "📊 your performance" in text.lower()
+    assert "🎯 overall accuracy: 72%" in text.lower()
+    assert "💪 strongest course: signals" in text.lower()
+    assert "📌 focus next: linear electronics" in text.lower()

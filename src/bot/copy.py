@@ -127,19 +127,31 @@ def build_quiz_completion_message(summary: dict) -> str:
 
 def build_performance_message(summary: dict | None) -> str:
     if not summary or summary.get("attempt_count", 0) == 0:
-        return "No quiz history yet. Finish a quiz and your performance summary will appear here."
+        return (
+            "📊 Your Performance\n\n"
+            "No quiz history yet.\n"
+            "Finish a quiz and your progress summary will appear here."
+        )
 
     strongest_course = summary.get("strongest_course") or "Not enough data"
     weakest_course = summary.get("weakest_course") or "Not enough data"
+    accuracy = summary["accuracy_percent"]
+    if accuracy >= 85:
+        coaching = "Excellent consistency. Keep stretching with tougher quizzes."
+    elif accuracy >= 65:
+        coaching = "Solid progress. A few more quizzes should lift your weak areas."
+    else:
+        coaching = "Keep going. A few short quizzes in your weak course should raise your overall accuracy."
     return (
-        "Performance\n\n"
-        f"Quizzes completed: {summary['quiz_count']}\n"
-        f"Questions answered: {summary['attempt_count']}\n"
-        f"Overall accuracy: {summary['accuracy_percent']}%\n"
-        f"Average response time: {summary['average_time_seconds']}s\n"
-        f"Strongest course: {strongest_course}\n"
-        f"Weakest course: {weakest_course}\n"
-        f"Focus next: {summary['recommendation']}"
+        "📊 Your Performance\n\n"
+        f"📝 Quizzes completed: {summary['quiz_count']}\n"
+        f"❓ Questions answered: {summary['attempt_count']}\n"
+        f"🎯 Overall accuracy: {summary['accuracy_percent']}%\n"
+        f"⏱ Average pace: {summary['average_time_seconds']}s per question\n\n"
+        f"💪 Strongest course: {strongest_course}\n"
+        f"📌 Focus next: {weakest_course}\n\n"
+        f"{coaching}\n"
+        f"Next step: {summary['recommendation']}"
     )
 
 
