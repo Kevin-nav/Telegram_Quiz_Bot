@@ -440,8 +440,8 @@ async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback
     assert handled is True
     assert bot.message_calls[2]["text"] == "✅ Correct. Nice work."
     assert bot.photo_calls[1]["photo"] == "https://cdn.example.com/linear-electronics-q1-expl.png"
-    assert "Quiz complete for Linear Electronics." in bot.message_calls[-1]["text"]
-    assert "Accuracy:" in bot.message_calls[-1]["text"]
+    assert "📘 Linear Electronics Quiz Complete" in bot.message_calls[-1]["text"]
+    assert "🎯 Accuracy:" in bot.message_calls[-1]["text"]
 
 
 @pytest.mark.asyncio
@@ -571,4 +571,37 @@ async def test_poll_answer_non_latex_flow_sends_feedback_then_text_explanation()
     assert bot.message_calls[-3]["text"].startswith(("✅ Correct\n", "❌ Wrong\n"))
     assert "apply the power rule" in bot.message_calls[-3]["text"].lower()
     assert "not correct? report this answer" in bot.message_calls[-2]["text"].lower()
-    assert "Quiz complete for Calculus." in bot.message_calls[-1]["text"]
+    assert "📘 Calculus Quiz Complete" in bot.message_calls[-1]["text"]
+
+
+def test_build_completion_summary_humanizes_topics_and_tracks_longest_fastest():
+    service = QuizSessionService()
+    session = SimpleNamespace(
+        course_name="Thermodynamics",
+        score=3,
+        total_questions=3,
+        questions=[
+            SimpleNamespace(
+                topic_id="gauge_and_absolute_pressure",
+                was_answered_correctly=False,
+                time_taken_seconds=124.2,
+            ),
+            SimpleNamespace(
+                topic_id="unsteady_flow",
+                was_answered_correctly=True,
+                time_taken_seconds=11.4,
+            ),
+            SimpleNamespace(
+                topic_id="unsteady_flow",
+                was_answered_correctly=True,
+                time_taken_seconds=70.0,
+            ),
+        ],
+    )
+
+    summary = service._build_completion_summary(session)
+
+    assert summary["strongest_topic"] == "Unsteady Flow"
+    assert summary["weakest_topic"] == "Gauge And Absolute Pressure"
+    assert summary["longest_question"] == {"question_number": 1, "time_seconds": 124.2}
+    assert summary["fastest_question"] == {"question_number": 2, "time_seconds": 11.4}

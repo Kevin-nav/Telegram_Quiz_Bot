@@ -236,6 +236,38 @@ async def test_starting_selected_course_without_questions_shows_empty_message():
 
 
 @pytest.mark.asyncio
+async def test_starting_selected_course_shows_non_interactive_status_message():
+    user = _make_user()
+    query = FakeQuery("quiz:length:10")
+    quiz_session_service = FakeQuizSessionService()
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "quiz_session_service": quiz_session_service,
+            }
+        ),
+        user_data={
+            QUIZ_SELECTION_KEY: {
+                "course_id": "thermodynamics",
+                "course_name": "Thermodynamics",
+            }
+        },
+        bot=SimpleNamespace(),
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert "starting your 10-question quiz for thermodynamics" in query.calls[-1]["text"].lower()
+    assert query.calls[-1]["reply_markup"] is None
+    assert quiz_session_service.calls
+
+
+@pytest.mark.asyncio
 async def test_study_settings_opens_faculty_setup():
     user = _make_user()
     query = FakeQuery("home:study_settings")

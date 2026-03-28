@@ -412,12 +412,6 @@ async def handle_home_callback(
                 f"Starting your {question_count}-question quiz for "
                 f"{selected_course['course_name']}."
             ),
-            reply_markup=build_home_keyboard(
-                _get_home_service(context).build_home(
-                    _build_home_profile(user),
-                    has_active_quiz=True,
-                )["buttons"]
-            ),
         )
         _remember_active_message(context, query)
         chat = getattr(query, "message", None)

@@ -575,8 +575,8 @@ class QuizSessionService:
                 ),
                 key=lambda item: (item[0], item[1]),
             )
-            weakest_topic = ranked_topics[0][1].replace("-", " ").title()
-            strongest_topic = ranked_topics[-1][1].replace("-", " ").title()
+            weakest_topic = self._humanize_topic_name(ranked_topics[0][1])
+            strongest_topic = self._humanize_topic_name(ranked_topics[-1][1])
 
         if accuracy_percent >= 85:
             tier = "Excellent"
@@ -591,6 +591,31 @@ class QuizSessionService:
             else "Keep building consistency with another short quiz."
         )
 
+        longest_question = self._question_timing_summary(
+            max(
+                (
+                    question
+                    for question in answered_questions
+                    if question.time_taken_seconds is not None
+                ),
+                key=lambda question: question.time_taken_seconds,
+                default=None,
+            ),
+            session=session,
+        )
+        fastest_question = self._question_timing_summary(
+            min(
+                (
+                    question
+                    for question in answered_questions
+                    if question.time_taken_seconds is not None
+                ),
+                key=lambda question: question.time_taken_seconds,
+                default=None,
+            ),
+            session=session,
+        )
+
         return {
             "course_name": session.course_name,
             "score": session.score,
@@ -601,6 +626,30 @@ class QuizSessionService:
             "strongest_topic": strongest_topic,
             "weakest_topic": weakest_topic,
             "recommendation": recommendation,
+            "longest_question": longest_question,
+            "fastest_question": fastest_question,
+        }
+
+    def _humanize_topic_name(self, topic: str | None) -> str | None:
+        if topic is None:
+            return None
+        return topic.replace("-", " ").replace("_", " ").title()
+
+    def _question_timing_summary(
+        self,
+        question: QuizQuestion | None,
+        *,
+        session: QuizSessionState,
+    ) -> dict | None:
+        if question is None or question.time_taken_seconds is None:
+            return None
+        try:
+            question_number = session.questions.index(question) + 1
+        except ValueError:
+            question_number = None
+        return {
+            "question_number": question_number,
+            "time_seconds": round(question.time_taken_seconds, 1),
         }
 
     def _correct_option_label(self, question) -> str:

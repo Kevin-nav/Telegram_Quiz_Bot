@@ -63,19 +63,66 @@ def build_report_cancelled_message() -> str:
     return "Report cancelled."
 
 
+def _build_accuracy_coaching(summary: dict) -> str:
+    accuracy = summary["accuracy_percent"]
+    if accuracy >= 85:
+        return "Excellent work. You are handling this topic well."
+    if accuracy >= 65:
+        return "Solid work. A quick review should sharpen the weaker spots."
+    return "Keep going, this topic needs another pass."
+
+
+def _build_pace_text(summary: dict) -> str:
+    return f"About {summary['average_time_seconds']}s per question"
+
+
+def _build_timing_line(summary: dict, *, key: str, emoji: str, label: str) -> str | None:
+    question = summary.get(key)
+    if not question:
+        return None
+    return f"{emoji} {label}: Question {question['question_number']} - {question['time_seconds']}s"
+
+
 def build_quiz_completion_message(summary: dict) -> str:
     weakest_topic = summary.get("weakest_topic") or "No weak topic detected"
     strongest_topic = summary.get("strongest_topic") or "No standout topic yet"
-    return (
-        f"Quiz complete for {summary['course_name']}.\n\n"
-        f"Score: {summary['score']}/{summary['total_questions']}\n"
-        f"Accuracy: {summary['accuracy_percent']}%\n"
-        f"Result: {summary['tier']}\n"
-        f"Average pace: {summary['average_time_seconds']}s per question\n"
-        f"Strongest topic: {strongest_topic}\n"
-        f"Weakest topic: {weakest_topic}\n"
-        f"Next step: {summary['recommendation']}"
+    lines = [
+        f"📘 {summary['course_name']} Quiz Complete",
+        "",
+        f"📝 Score: {summary['score']}/{summary['total_questions']} correct",
+        f"🎯 Accuracy: {summary['accuracy_percent']}% - {_build_accuracy_coaching(summary)}",
+        f"⏱ Pace: {_build_pace_text(summary)}",
+        "",
+        f"💪 Strongest area: {strongest_topic}",
+        f"📌 Focus next: {weakest_topic}",
+    ]
+
+    longest_line = _build_timing_line(
+        summary,
+        key="longest_question",
+        emoji="🐢",
+        label="Longest",
     )
+    fastest_line = _build_timing_line(
+        summary,
+        key="fastest_question",
+        emoji="⚡",
+        label="Fastest",
+    )
+    if longest_line or fastest_line:
+        lines.append("")
+        if longest_line:
+            lines.append(longest_line)
+        if fastest_line:
+            lines.append(fastest_line)
+
+    lines.extend(
+        [
+            "",
+            f"Next step: {summary['recommendation']}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_performance_message(summary: dict | None) -> str:
