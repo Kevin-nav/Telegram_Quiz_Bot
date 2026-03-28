@@ -1,7 +1,7 @@
 """Add question reports
 
 Revision ID: 20260327_000001
-Revises: 20260326_000001
+Revises: 20260325_000003
 Create Date: 2026-03-27 00:00:01.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "20260327_000001"
-down_revision = "20260326_000001"
+down_revision = "20260325_000003"
 branch_labels = None
 depends_on = None
 
