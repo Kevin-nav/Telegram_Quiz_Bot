@@ -86,7 +86,7 @@ def _expected_message_id_for_scope(session, scope: str) -> int | None:
 async def _reject_stale_report_callback(query, session, scope: str) -> bool:
     expected_message_id = _expected_message_id_for_scope(session, scope)
     callback_message_id = getattr(getattr(query, "message", None), "message_id", None)
-    if expected_message_id is None or callback_message_id == expected_message_id:
+    if expected_message_id is not None and callback_message_id == expected_message_id:
         return False
 
     await query.answer(

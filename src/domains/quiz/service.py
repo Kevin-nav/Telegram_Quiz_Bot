@@ -124,6 +124,22 @@ class QuizSessionService:
         await self._send_current_question(session, bot=bot)
         return True
 
+    async def invalidate_active_callback_targets(self, *, user_id: int) -> bool:
+        self._require_state_store()
+
+        session_id = await self.state_store.get_active_quiz(user_id)
+        if not session_id:
+            return False
+
+        session = await self.state_store.get_quiz_session(session_id)
+        if session is None:
+            return False
+
+        session.question_action_message_id = None
+        session.answer_action_message_id = None
+        await self.state_store.set_quiz_session(session)
+        return True
+
     async def handle_poll_answer(
         self,
         *,
@@ -286,11 +302,11 @@ class QuizSessionService:
 
         question_text = question.prompt
         poll_options = question.options
+        await bot.send_message(
+            chat_id=session.chat_id,
+            text=self._build_question_progress_text(session),
+        )
         if question.has_latex:
-            await bot.send_message(
-                chat_id=session.chat_id,
-                text=self._build_question_progress_text(session),
-            )
             if question.question_asset_url:
                 await bot.send_photo(
                     chat_id=session.chat_id,
@@ -478,13 +494,18 @@ class QuizSessionService:
         question: QuizQuestion,
         *,
         is_correct: bool,
+        multiline: bool = False,
     ) -> str:
         if is_correct:
-            return "Correct. Nice work."
-        return (
-            "Not quite. "
-            f"The correct answer was {self._correct_option_label(question)}."
-        )
+            if multiline:
+                return "✅ Correct\nNice work."
+            return "✅ Correct. Nice work."
+        if multiline:
+            return (
+                "❌ Wrong\n"
+                f"The correct answer was {self._correct_option_label(question)}."
+            )
+        return f"❌ Wrong. The correct answer was {self._correct_option_label(question)}."
 
     def _build_feedback_with_explanation_text(
         self,
@@ -492,7 +513,11 @@ class QuizSessionService:
         *,
         is_correct: bool,
     ) -> str:
-        feedback = self._build_feedback_text(question, is_correct=is_correct)
+        feedback = self._build_feedback_text(
+            question,
+            is_correct=is_correct,
+            multiline=True,
+        )
         if question.explanation:
             return f"{feedback}\n\nExplanation: {question.explanation}"
         return feedback

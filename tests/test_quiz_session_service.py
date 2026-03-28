@@ -197,6 +197,7 @@ async def test_start_quiz_creates_state_and_sends_first_poll():
     assert bot.poll_calls
     assert bot.message_calls[-1]["text"] == "Need to flag this question?"
     assert not bot.photo_calls
+    assert bot.message_calls[0]["text"] == "Question 1 of 2"
     assert bot.poll_calls[0]["question"] == "What is the derivative of x^2?"
 
 
@@ -300,9 +301,10 @@ async def test_poll_answer_advances_quiz_without_db_dependency(monkeypatch):
     assert loaded_session.current_poll_id == "poll-2"
     assert loaded_session.last_answered_question_id == first_question.question_id
     assert len(bot.poll_calls) == 2
-    assert bot.message_calls[1]["text"].startswith("Correct. Nice work.")
-    assert "Explanation:" in bot.message_calls[1]["text"]
-    assert bot.message_calls[2]["text"] == "Not correct? Report this answer if the key or explanation is off."
+    assert bot.message_calls[2]["text"].startswith("✅ Correct")
+    assert "Explanation:" in bot.message_calls[2]["text"]
+    assert bot.message_calls[3]["text"] == "Not correct? Report this answer if the key or explanation is off."
+    assert bot.message_calls[4]["text"] == "Question 2 of 2"
     assert attempt_jobs
     assert attempt_jobs[0].payload["time_taken_seconds"] is not None
     assert attempt_jobs[0].payload["time_allocated_seconds"] is not None
@@ -436,7 +438,7 @@ async def test_latex_question_sends_progress_image_and_letter_poll_then_feedback
     )
 
     assert handled is True
-    assert bot.message_calls[2]["text"] == "Correct. Nice work."
+    assert bot.message_calls[2]["text"] == "✅ Correct. Nice work."
     assert bot.photo_calls[1]["photo"] == "https://cdn.example.com/linear-electronics-q1-expl.png"
     assert "Quiz complete for Linear Electronics." in bot.message_calls[-1]["text"]
     assert "Accuracy:" in bot.message_calls[-1]["text"]
@@ -566,7 +568,7 @@ async def test_poll_answer_non_latex_flow_sends_feedback_then_text_explanation()
         schedule_background=scheduler,
     )
 
-    assert "correct" in bot.message_calls[-3]["text"].lower()
+    assert bot.message_calls[-3]["text"].startswith(("✅ Correct\n", "❌ Wrong\n"))
     assert "apply the power rule" in bot.message_calls[-3]["text"].lower()
     assert "not correct? report this answer" in bot.message_calls[-2]["text"].lower()
     assert "Quiz complete for Calculus." in bot.message_calls[-1]["text"]

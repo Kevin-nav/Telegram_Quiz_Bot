@@ -4,6 +4,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.copy import build_home_message, build_welcome_message
+from src.bot.handlers.command_utils import (
+    build_home_profile,
+    invalidate_quiz_callback_targets,
+    remember_reply_message,
+)
 from src.bot.keyboards import build_home_keyboard, build_welcome_keyboard
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -37,18 +42,6 @@ def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
 def _get_state_store(context: ContextTypes.DEFAULT_TYPE):
     return context.application.bot_data.get("state_store")
 
-
-def _build_home_profile(user) -> dict[str, str | None]:
-    return {
-        "faculty_name": _humanize(getattr(user, "faculty_code", None), "Not set"),
-        "program_name": _humanize(getattr(user, "program_code", None), "Not set"),
-        "level_name": f"Level {getattr(user, 'level_code', None)}"
-        if getattr(user, "level_code", None)
-        else "Not set",
-        "semester_name": _humanize(getattr(user, "semester_code", None), "Not set"),
-    }
-
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user = update.effective_user
 
@@ -59,6 +52,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         telegram_user.id,
         display_name=telegram_user.first_name or telegram_user.full_name,
     )
+    await invalidate_quiz_callback_targets(context, user_id=telegram_user.id)
 
     if not getattr(user, "onboarding_completed", False):
         reply = await update.message.reply_text(
@@ -67,16 +61,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
     else:
         home = home_service.build_home(
-            _build_home_profile(user),
+            build_home_profile(user),
             has_active_quiz=getattr(user, "has_active_quiz", False),
         )
         reply = await update.message.reply_text(
-            build_home_message(_build_home_profile(user)),
+            build_home_message(build_home_profile(user)),
             reply_markup=build_home_keyboard(home["buttons"]),
         )
-    message_id = getattr(reply, "message_id", None)
-    if message_id is not None and hasattr(context, "user_data"):
-        context.user_data[ACTIVE_INTERACTIVE_MESSAGE_ID_KEY] = message_id
+    remember_reply_message(context, reply)
 
     scheduler = _get_background_scheduler(context)
     if scheduler is None:

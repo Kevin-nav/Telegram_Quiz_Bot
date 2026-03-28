@@ -149,6 +149,25 @@ async def test_stale_report_callback_is_rejected_and_keyboard_is_cleared():
 
 
 @pytest.mark.asyncio
+async def test_report_callback_is_rejected_when_active_report_buttons_are_invalidated():
+    store = InteractiveStateStore(FakeRedis())
+    scheduler = FakeScheduler()
+    context = _make_context(store, scheduler)
+    await _seed_session(store)
+    session = await store.get_quiz_session("session-1")
+    session.question_action_message_id = None
+    await store.set_quiz_session(session)
+    query = FakeQuery("report:start:question", message_id=201)
+    update = SimpleNamespace(callback_query=query, effective_user=SimpleNamespace(id=42))
+
+    await handle_report_callback(update, context)
+
+    assert query.answers[-1]["text"] == "This report menu is out of date. Use the latest one."
+    assert query.cleared_reply_markup == 1
+    assert not query.calls
+
+
+@pytest.mark.asyncio
 async def test_report_note_message_persists_report_and_clears_pending_state(monkeypatch):
     store = InteractiveStateStore(FakeRedis())
     scheduler = FakeScheduler()
