@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+const PUBLIC_PATHS = new Set(["/login", "/set-password"]);
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

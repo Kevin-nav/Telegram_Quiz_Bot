@@ -1,303 +1,225 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
+import { useState } from "react";
+import Link from "next/link";
+import {
+  Search,
+  Plus,
+  Upload,
+  FileQuestion,
+  Filter,
+} from "lucide-react";
 import { AdminShell } from "@/components/admin-shell";
-import { QuestionEditor } from "@/components/questions/question-editor";
-import { QuestionTable } from "@/components/questions/question-table";
-import { adminApi, type QuestionDraft, type QuestionRecord } from "@/lib/api";
-
-const fallbackQuestions: QuestionRecord[] = [
-  {
-    id: 501,
-    question_key: "MAT-001",
-    course_id: "cpen101",
-    course_slug: "intro-to-computing",
-    question_text: "Which of the following best describes a compiler?",
-    options: [
-      "A tool that converts source code into machine code",
-      "A storage system for compiled notes",
-      "A text editor for source files",
-      "A scheduler for operating systems",
-    ],
-    correct_option_text: "A tool that converts source code into machine code",
-    short_explanation: "A compiler translates a high-level program into executable machine code.",
-    question_type: "MCQ",
-    option_count: 4,
-    status: "ready",
-    band: 2,
-    topic_id: "programming-basics",
-    cognitive_level: "Understand",
-    updated_at: "2026-03-24T08:40:00Z",
-  },
-  {
-    id: 502,
-    question_key: "PHY-014",
-    course_id: "stat205",
-    course_slug: "probability-theory",
-    question_text: "What is the probability of an event that cannot occur?",
-    options: ["0", "1", "0.5", "Undefined"],
-    correct_option_text: "0",
-    short_explanation: "Impossible events have probability zero.",
-    question_type: "MCQ",
-    option_count: 4,
-    status: "review",
-    band: 1,
-    topic_id: "probability",
-    cognitive_level: "Remember",
-    updated_at: "2026-03-24T10:15:00Z",
-  },
-  {
-    id: 503,
-    question_key: "ENG-019",
-    course_id: "cpen103",
-    course_slug: "engineering-mathematics",
-    question_text: "Solve for x: 2x + 4 = 12.",
-    options: ["3", "4", "5", "6"],
-    correct_option_text: "4",
-    short_explanation: "Subtract 4 from both sides and divide by 2.",
-    question_type: "MCQ",
-    option_count: 4,
-    status: "draft",
-    band: 1,
-    topic_id: "algebra",
-    cognitive_level: "Apply",
-    updated_at: "2026-03-23T17:30:00Z",
-  },
-];
-
-function toQuestionDraft(question: QuestionRecord | undefined): QuestionDraft {
-  if (!question) {
-    return {
-      question_text: "",
-      options_text: "",
-      correct_option_text: "",
-      short_explanation: "",
-      question_type: "MCQ",
-      status: "draft",
-      band: 1,
-      topic_id: "",
-      cognitive_level: "",
-    };
-  }
-
-  return {
-    question_text: question.question_text,
-    options_text: question.options.join("\n"),
-    correct_option_text: question.correct_option_text,
-    short_explanation: question.short_explanation ?? "",
-    question_type: question.question_type,
-    status: question.status,
-    band: question.band,
-    topic_id: question.topic_id,
-    cognitive_level: question.cognitive_level ?? "",
-  };
-}
-
-function toRecordFromDraft(
-  draft: QuestionDraft,
-  selected: QuestionRecord | undefined,
-  id: number,
-): QuestionRecord {
-  const options = draft.options_text
-    .split("\n")
-    .map((option) => option.trim())
-    .filter(Boolean);
-
-  return {
-    id,
-    question_key: selected?.question_key ?? `NEW-${id}`,
-    course_id: selected?.course_id ?? fallbackQuestions[0]?.course_id ?? "",
-    course_slug: selected?.course_slug ?? fallbackQuestions[0]?.course_slug ?? "",
-    question_text: draft.question_text,
-    options,
-    correct_option_text: draft.correct_option_text,
-    short_explanation: draft.short_explanation || null,
-    question_type: draft.question_type,
-    option_count: options.length,
-    status: draft.status,
-    band: draft.band,
-    topic_id: draft.topic_id,
-    cognitive_level: draft.cognitive_level || null,
-    updated_at: new Date().toISOString(),
-  };
-}
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { QuestionEditorDialog } from "@/components/questions/question-editor-dialog";
+import { MOCK_QUESTIONS, type Question } from "@/lib/mock-data";
 
 export default function QuestionsPage() {
-  const [questions, setQuestions] = useState<QuestionRecord[]>(fallbackQuestions);
-  const [selectedId, setSelectedId] = useState<number | null>(fallbackQuestions[0]?.id ?? null);
-  const [draft, setDraft] = useState<QuestionDraft>(() => toQuestionDraft(fallbackQuestions[0]));
-  const [query, setQuery] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [courseFilter, setCourseFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true;
+  const uniqueCourses = [...new Set(MOCK_QUESTIONS.map((q) => q.course_code))];
 
-    void adminApi
-      .listQuestions()
-      .then((items) => {
-        if (!isMounted || items.length === 0) {
-          return;
-        }
+  const filtered = MOCK_QUESTIONS.filter((q) => {
+    const matchesSearch =
+      q.question_text.toLowerCase().includes(search.toLowerCase()) ||
+      q.question_key.toLowerCase().includes(search.toLowerCase());
+    const matchesCourse = courseFilter === "all" || q.course_code === courseFilter;
+    const matchesStatus = statusFilter === "all" || q.status === statusFilter;
+    return matchesSearch && matchesCourse && matchesStatus;
+  });
 
-        setQuestions(items);
-      })
-      .catch(() => undefined);
+  function handleEdit(question: Question) {
+    setSelectedQuestion(question);
+    setEditorOpen(true);
+  }
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (selectedId === null) {
-      setDraft(toQuestionDraft(undefined));
-      return;
-    }
-
-    const selected = questions.find((question) => question.id === selectedId);
-    if (!selected) {
-      if (questions.length > 0) {
-        setSelectedId(questions[0].id);
-      }
-      return;
-    }
-
-    setDraft(toQuestionDraft(selected));
-  }, [questions, selectedId]);
-
-  const selectedQuestion =
-    selectedId === null ? null : questions.find((question) => question.id === selectedId) ?? null;
-
-  const visibleQuestions = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) {
-      return questions;
-    }
-
-    return questions.filter((question) => {
-      const haystack = [
-        question.question_key,
-        question.question_text,
-        question.course_slug,
-        question.course_id,
-        question.topic_id,
-        question.cognitive_level ?? "",
-        question.status,
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(needle);
-    });
-  }, [query, questions]);
-
-  const stats = useMemo(
-    () => ({
-      total: questions.length,
-      ready: questions.filter((question) => question.status === "ready").length,
-      review: questions.filter((question) => question.status === "review").length,
-      draft: questions.filter((question) => question.status === "draft").length,
-    }),
-    [questions],
-  );
-
-  async function handleSave() {
-    setIsSaving(true);
-    try {
-      const saved = await adminApi.saveQuestion(selectedId, draft);
-      const nextRecord = toRecordFromDraft(draft, selectedQuestion ?? questions[0], saved.id);
-
-      setQuestions((current) =>
-        selectedId === null
-          ? [nextRecord, ...current]
-          : current.map((question) => (question.id === saved.id ? nextRecord : question)),
-      );
-      setSelectedId(saved.id);
-      setDraft(toQuestionDraft(nextRecord));
-    } catch {
-      // Keep the editor usable against the local fallback records.
-    } finally {
-      setIsSaving(false);
-    }
+  function handleCreate() {
+    setSelectedQuestion(null);
+    setEditorOpen(true);
   }
 
   return (
     <AdminShell>
-      <div className="module-page">
-        <section className="module-hero panel">
-          <div className="module-hero__copy">
-            <p className="eyebrow">Question bank</p>
-            <h1>Correct answers, explanations, and the questions themselves.</h1>
-            <p className="lead">
-              Search the bank, open any item, and publish a clean revision without dropping
-              the rest of the study flow.
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Questions</h2>
+            <p className="text-sm text-muted-foreground">
+              Manage the question bank across all courses.
             </p>
-            <div className="module-toolbar">
-              <button className="secondary-btn" type="button" onClick={() => setSelectedId(null)}>
-                New question
-              </button>
-              <button className="primary-btn" type="button" onClick={handleSave} disabled={isSaving}>
-                {isSaving ? "Saving..." : "Save question"}
-              </button>
-            </div>
           </div>
-          <div className="module-hero__aside">
-            <div className="insight-grid">
-              <article className="insight-card">
-                <span>Total</span>
-                <strong>{stats.total}</strong>
-                <p>Questions ready for editing or review.</p>
-              </article>
-              <article className="insight-card">
-                <span>Ready</span>
-                <strong>{stats.ready}</strong>
-                <p>Items available to the student quiz path.</p>
-              </article>
-            </div>
+          <div className="flex gap-2">
+            <Button variant="outline" render={<Link href="/questions/import" />} nativeButton={false}>
+              <Upload className="mr-2 size-4" />
+              Bulk Import
+            </Button>
+            <Button onClick={handleCreate}>
+              <Plus className="mr-2 size-4" />
+              New Question
+            </Button>
           </div>
-        </section>
+        </div>
 
-        <section className="module-grid module-grid--questions">
-          <QuestionTable
-            onQueryChange={setQuery}
-            onSelect={(questionId) => setSelectedId(questionId)}
-            query={query}
-            rows={visibleQuestions}
-            selectedId={selectedId}
-          />
-
-          <div className="module-stack">
-            <QuestionEditor
-              isSaving={isSaving}
-              onChange={setDraft}
-              onSubmit={handleSave}
-              value={draft}
+        {/* Filters */}
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search questions..."
+              className="pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-            <section className="module-panel panel">
-              <div className="panel-header">
-                <div>
-                  <p className="panel-kicker">Status mix</p>
-                  <h2>Review pressure at a glance</h2>
-                </div>
-                <span className="panel-badge muted">Live queue</span>
-              </div>
-              <div className="stats-grid stats-grid--compact">
-                <article className="stat-card">
-                  <span className="stat-label">Review</span>
-                  <strong className="stat-value">{stats.review}</strong>
-                  <span className="stat-detail">Items waiting on editorial sign-off.</span>
-                </article>
-                <article className="stat-card">
-                  <span className="stat-label">Draft</span>
-                  <strong className="stat-value">{stats.draft}</strong>
-                  <span className="stat-detail">Still in the editing lane.</span>
-                </article>
-              </div>
-            </section>
           </div>
-        </section>
+          <Select value={courseFilter} onValueChange={(v) => setCourseFilter(v ?? "all")}>
+            <SelectTrigger className="w-48">
+              <Filter className="mr-2 size-4" />
+              <SelectValue placeholder="All courses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All courses</SelectItem>
+              {uniqueCourses.map((code) => (
+                <SelectItem key={code} value={code}>
+                  {code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "all")}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="needs_review">Needs Review</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Stats */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">{MOCK_QUESTIONS.length}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">
+                {MOCK_QUESTIONS.filter((q) => q.status === "active").length}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">With LaTeX</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold">
+                {MOCK_QUESTIONS.filter((q) => q.has_latex).length}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Table */}
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-20">Key</TableHead>
+                <TableHead>Question</TableHead>
+                <TableHead>Course</TableHead>
+                <TableHead>Band</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-20">LaTeX</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <FileQuestion className="mx-auto mb-2 size-8 text-muted-foreground/40" />
+                    No questions match your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((q) => (
+                  <TableRow
+                    key={q.id}
+                    className="cursor-pointer"
+                    onClick={() => handleEdit(q)}
+                  >
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {q.question_key}
+                    </TableCell>
+                    <TableCell className="max-w-xs truncate">{q.question_text}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {q.course_code}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{q.band}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={q.status === "active" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {q.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {q.has_latex && (
+                        <Badge variant="outline" className="text-xs font-mono">
+                          TeX
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
+
+      {/* Editor */}
+      <QuestionEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        question={selectedQuestion}
+      />
     </AdminShell>
   );
 }

@@ -1,149 +1,203 @@
+"use client";
+
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Users,
+  MessageSquare,
+  Target,
+  Flame,
+  ArrowRight,
+} from "lucide-react";
+import Link from "next/link";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { AdminShell } from "@/components/admin-shell";
+import { MOCK_KPIS, MOCK_REPORTS, MOCK_LEADERBOARD, MOCK_QUESTIONS, MOCK_STAFF } from "@/lib/mock-data";
 
-const dashboardCards = [
-  {
-    label: "Active staff sessions",
-    value: "18",
-    detail: "2 editors, 1 catalog manager, 1 super admin on deck",
-  },
-  {
-    label: "Question corrections",
-    value: "47",
-    detail: "Waiting on review before publish",
-  },
-  {
-    label: "Catalog changes",
-    value: "12",
-    detail: "4 offerings updated in the last 24 hours",
-  },
-  {
-    label: "Analytics anomalies",
-    value: "3",
-    detail: "Courses with rising failure rates",
-  },
-];
+const trendIcons = {
+  up: TrendingUp,
+  down: TrendingDown,
+  flat: Minus,
+};
 
-const reviewQueue = [
-  {
-    title: "Programming in MATLAB",
-    meta: "14 edits pending",
-    note: "Correct answer mismatch on matrix indexing item 08.",
-  },
-  {
-    title: "General Psychology",
-    meta: "9 edits pending",
-    note: "Two explanations need tightening before release.",
-  },
-  {
-    title: "Catalog governance",
-    meta: "5 updates pending",
-    note: "New level offering awaits publish permission.",
-  },
-];
-
-const auditTrail = [
-  "06:42 - Staff user created for analytics viewer role.",
-  "05:31 - Differential Equations explanation corrected and queued.",
-  "04:17 - Electrical Engineering first-semester offering marked active.",
-];
+const kpiIcons = [Users, MessageSquare, Target, Flame];
 
 export default function DashboardPage() {
+  const openReports = MOCK_REPORTS.filter((r) => r.status === "open");
+  const reviewQuestions = MOCK_QUESTIONS.filter((q) => q.status === "needs_review");
+
   return (
     <AdminShell>
-      <section className="hero-panel" id="overview">
-        <div className="hero-copy">
-          <p className="eyebrow">Editorial operations console</p>
-          <h1>Control the study catalog like a newsroom controls the edition.</h1>
-          <p className="lead">
-            Monitor student performance, publish content fixes, and manage the academic
-            structure without touching code deployments.
+      <div className="space-y-6">
+        {/* Page header */}
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
+          <p className="text-sm text-muted-foreground">
+            Monitor bot usage, content health, and student engagement.
           </p>
         </div>
-        <div className="hero-card">
-          <div className="hero-card-label">Today&apos;s board</div>
-          <div className="hero-card-value">82%</div>
-          <div className="hero-card-text">
-            of review items are already cached and ready for staff triage.
-          </div>
+
+        {/* KPI Cards */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {MOCK_KPIS.map((kpi, i) => {
+            const TrendIcon = trendIcons[kpi.trend];
+            const KpiIcon = kpiIcons[i];
+            return (
+              <Card key={kpi.label}>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">
+                    {kpi.label}
+                  </CardTitle>
+                  <KpiIcon className="size-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{kpi.value}</div>
+                  <div className="mt-1 flex items-center gap-1 text-xs">
+                    <TrendIcon
+                      className={`size-3 ${
+                        kpi.trend === "up"
+                          ? "text-emerald-500"
+                          : kpi.trend === "down"
+                            ? "text-red-500"
+                            : "text-muted-foreground"
+                      }`}
+                    />
+                    <span
+                      className={
+                        kpi.trend === "up"
+                          ? "text-emerald-600"
+                          : kpi.trend === "down"
+                            ? "text-red-500"
+                            : "text-muted-foreground"
+                      }
+                    >
+                      {kpi.change}
+                    </span>
+                    <span className="text-muted-foreground">from last week</span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-      </section>
 
-      <section className="stats-grid" aria-label="Admin metrics">
-        {dashboardCards.map((card, index) => (
-          <article className="stat-card reveal" style={{ animationDelay: `${index * 90}ms` }} key={card.label}>
-            <span className="stat-label">{card.label}</span>
-            <strong className="stat-value">{card.value}</strong>
-            <span className="stat-detail">{card.detail}</span>
-          </article>
-        ))}
-      </section>
-
-      <section className="content-grid">
-        <article className="panel" id="queue">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Review queue</p>
-              <h2>Latest content interventions</h2>
-            </div>
-            <span className="panel-badge">Live</span>
-          </div>
-          <div className="queue-list">
-            {reviewQueue.map((item) => (
-              <div className="queue-item" key={item.title}>
-                <div>
-                  <h3>{item.title}</h3>
-                  <p>{item.note}</p>
+        {/* Bottom grid */}
+        <div className="grid gap-4 lg:grid-cols-7">
+          {/* Quick stats */}
+          <Card className="lg:col-span-4">
+            <CardHeader>
+              <CardTitle className="text-base">At a Glance</CardTitle>
+              <CardDescription>Quick operational stats</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Total Staff</p>
+                  <p className="text-xl font-semibold">{MOCK_STAFF.length}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {MOCK_STAFF.filter((s) => s.is_active).length} active
+                  </p>
                 </div>
-                <span>{item.meta}</span>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Questions in Bank</p>
+                  <p className="text-xl font-semibold">{MOCK_QUESTIONS.length}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {reviewQuestions.length} need review
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Open Reports</p>
+                  <p className="text-xl font-semibold">{openReports.length}</p>
+                  <p className="text-xs text-muted-foreground">
+                    from students
+                  </p>
+                </div>
               </div>
-            ))}
-          </div>
-        </article>
+            </CardContent>
+          </Card>
 
-        <article className="panel" id="audit">
-          <div className="panel-header">
+          {/* Recent reports */}
+          <Card className="lg:col-span-3">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base">Recent Reports</CardTitle>
+                <CardDescription>Student-flagged questions</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" render={<Link href="/reports" />} nativeButton={false}>
+                  View all
+                  <ArrowRight className="ml-1 size-3" />
+              </Button>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {openReports.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No open reports.</p>
+              ) : (
+                openReports.slice(0, 3).map((report) => (
+                  <div
+                    key={report.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {report.question_key}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {report.student_reasoning}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="shrink-0 text-xs">
+                      {report.course_name}
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Top Students */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <p className="panel-kicker">Audit trail</p>
-              <h2>Recent staff actions</h2>
+              <CardTitle className="text-base">Top Students</CardTitle>
+              <CardDescription>By questions answered this term</CardDescription>
             </div>
-            <span className="panel-badge muted">Recorded</span>
-          </div>
-          <div className="timeline">
-            {auditTrail.map((entry) => (
-              <div className="timeline-item" key={entry}>
-                {entry}
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="panel panel-wide" id="catalog">
-        <div className="panel-header">
-          <div>
-            <p className="panel-kicker">Catalog health</p>
-            <h2>Database-driven academic structure</h2>
-          </div>
-          <span className="panel-badge accent">Redis cached</span>
-        </div>
-        <div className="catalog-tiles">
-          <div className="catalog-tile">
-            <span>Faculties</span>
-            <strong>6</strong>
-            <p>Editable without code changes.</p>
-          </div>
-          <div className="catalog-tile">
-            <span>Programs</span>
-            <strong>17</strong>
-            <p>Linked through canonical offerings.</p>
-          </div>
-          <div className="catalog-tile">
-            <span>Courses</span>
-            <strong>64</strong>
-            <p>Rendered from the shared catalog cache.</p>
-          </div>
-        </div>
-      </section>
+            <Button variant="ghost" size="sm" render={<Link href="/analytics" />} nativeButton={false}>
+                Full leaderboard
+                <ArrowRight className="ml-1 size-3" />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2">
+              {MOCK_LEADERBOARD.slice(0, 5).map((entry) => (
+                <div
+                  key={entry.rank}
+                  className="flex items-center gap-3 rounded-lg border px-3 py-2"
+                >
+                  <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                    {entry.rank}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">@{entry.telegram_username}</p>
+                    <p className="text-xs text-muted-foreground">{entry.top_course}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium">{entry.questions_answered}</p>
+                    <p className="text-xs text-muted-foreground">answered</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium">{entry.accuracy}%</p>
+                    <p className="text-xs text-muted-foreground">accuracy</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </AdminShell>
   );
 }

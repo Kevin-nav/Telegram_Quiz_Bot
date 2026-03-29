@@ -1,25 +1,15 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, IBM_Plex_Sans } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import type { ReactNode } from "react";
+
+import { Providers } from "@/components/providers";
 
 import "./globals.css";
 
-const displayFont = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-display",
-});
-
-const bodyFont = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-body",
-});
-
 export const metadata: Metadata = {
-  title: "Adarkwa Study Bot Admin",
-  description:
-    "Editorial operations console for analytics, content correction, and catalog governance.",
+  title: "Adarkwa Admin",
+  description: "Staff operations console for the Adarkwa Study Bot.",
 };
 
 export default function RootLayout({
@@ -28,8 +18,10 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
-      <body>{children}</body>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="font-sans antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

@@ -3,22 +3,36 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FormEvent } from "react";
 import { Suspense, startTransition, useState } from "react";
+import { ShieldCheck, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-function LoginPageContent() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [adminUserId, setAdminUserId] = useState("101");
-  const [email, setEmail] = useState("admin@example.com");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const nextPath = searchParams.get("next") || "/";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setError(null);
+
+    if (!email || !password) {
+      setError("Please fill in all fields.");
+      return;
+    }
+
     setIsSubmitting(true);
 
+    // Demo: set session cookie & redirect
     document.cookie = [
-      `admin_session=${encodeURIComponent(adminUserId)}`,
+      `admin_session=${encodeURIComponent("101")}`,
       "path=/",
       "SameSite=Lax",
     ].join("; ");
@@ -30,58 +44,89 @@ function LoginPageContent() {
   }
 
   return (
-    <main className="login-screen">
-      <section className="login-hero">
-        <p className="eyebrow">Staff access</p>
-        <h1>Adarkwa Study Bot Admin</h1>
-        <p className="lead">
-          A controlled operations desk for analytics, question corrections, and catalog
-          governance.
-        </p>
-        <div className="login-note">
-          <span>Subdomain</span>
-          <strong>admin.adarkwa.study</strong>
+    <div className="flex min-h-svh items-center justify-center bg-background p-4">
+      <div className="w-full max-w-sm">
+        {/* Brand */}
+        <div className="mb-8 flex flex-col items-center gap-2">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <ShieldCheck className="size-5" />
+          </div>
+          <span className="text-lg font-semibold tracking-tight">Adarkwa Admin</span>
         </div>
-      </section>
 
-      <section className="login-card">
-        <h2>Sign in</h2>
-        <p>Use a staff identity to continue into the operations console.</p>
-        <form className="login-form" onSubmit={handleSubmit}>
-          <label>
-            Staff user id
-            <input
-              name="adminUserId"
-              inputMode="numeric"
-              value={adminUserId}
-              onChange={(event) => setAdminUserId(event.target.value)}
-            />
-          </label>
-          <label>
-            Email
-            <input
-              name="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Entering..." : "Enter admin"}
-          </button>
-        </form>
-        <p className="login-footnote">
-          This scaffold stores a demo session cookie until the API-backed auth flow is wired.
+        <Card className="border-border/50">
+          <CardHeader className="space-y-1 text-center">
+            <CardTitle className="text-xl">Sign in</CardTitle>
+            <CardDescription>
+              Enter your staff credentials to continue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@staff.adarkwa.edu"
+                  autoComplete="email"
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              {error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  "Sign in"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          Staff-only access. No public registration.
         </p>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<main className="login-screen" />}>
-      <LoginPageContent />
+    <Suspense
+      fallback={
+        <div className="flex min-h-svh items-center justify-center">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <LoginForm />
     </Suspense>
   );
 }
