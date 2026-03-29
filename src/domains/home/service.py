@@ -7,10 +7,14 @@ class HomeService:
         profile: Mapping[str, str | bool | None] | None,
         *,
         has_active_quiz: bool = False,
+        include_performance_button: bool = True,
     ) -> dict:
         safe_profile = profile or {}
         message = self._build_message(safe_profile)
-        buttons = self._build_buttons(has_active_quiz=has_active_quiz)
+        buttons = self._build_buttons(
+            has_active_quiz=has_active_quiz,
+            include_performance_button=include_performance_button,
+        )
         return {"message": message, "buttons": buttons}
 
     def _build_message(self, profile: Mapping[str, str | bool | None]) -> str:
@@ -27,7 +31,12 @@ class HomeService:
             f"Semester: {semester}"
         )
 
-    def _build_buttons(self, *, has_active_quiz: bool) -> list[list[dict[str, str]]]:
+    def _build_buttons(
+        self,
+        *,
+        has_active_quiz: bool,
+        include_performance_button: bool,
+    ) -> list[list[dict[str, str]]]:
         buttons = [
             [{"label": "Start Quiz", "callback": "home:start_quiz"}],
         ]
@@ -37,9 +46,11 @@ class HomeService:
                 [{"label": "Continue Quiz", "callback": "home:continue_quiz"}]
             )
 
+        if include_performance_button:
+            buttons.append([{"label": "Performance", "callback": "home:performance"}])
+
         buttons.extend(
             [
-                [{"label": "Performance", "callback": "home:performance"}],
                 [{"label": "Study Settings", "callback": "home:study_settings"}],
                 [{"label": "Help", "callback": "home:help"}],
             ]

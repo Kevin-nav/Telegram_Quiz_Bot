@@ -56,6 +56,7 @@ async def performance_command(
     home = home_service.build_home(
         build_home_profile(user),
         has_active_quiz=getattr(user, "has_active_quiz", False),
+        include_performance_button=False,
     )
     performance_summary = await _get_performance_service(context).get_summary(
         update.effective_user.id

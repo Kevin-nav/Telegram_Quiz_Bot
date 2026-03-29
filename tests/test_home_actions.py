@@ -340,3 +340,7 @@ async def test_home_performance_renders_real_summary():
     assert "🎯 overall accuracy: 72%" in text.lower()
     assert "💪 strongest course: signals" in text.lower()
     assert "📌 focus next: linear electronics" in text.lower()
+    callbacks = [
+        row[0].callback_data for row in query.calls[-1]["reply_markup"].inline_keyboard
+    ]
+    assert "home:performance" not in callbacks

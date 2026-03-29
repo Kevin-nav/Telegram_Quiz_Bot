@@ -336,6 +336,7 @@ async def handle_home_callback(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),
                         has_active_quiz=getattr(user, "has_active_quiz", False),
+                        include_performance_button=False,
                     )["buttons"]
                 ),
             )
