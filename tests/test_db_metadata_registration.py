@@ -15,4 +15,6 @@ def test_canonical_database_import_registers_question_bank_tables():
     assert "staff_user_roles" in table_names
     assert "staff_user_permissions" in table_names
     assert "staff_role_permissions" in table_names
+    assert "staff_bot_access" in table_names
+    assert "staff_catalog_access" in table_names
     assert "audit_logs" in table_names

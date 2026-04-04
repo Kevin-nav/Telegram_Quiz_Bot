@@ -14,6 +14,8 @@ from src.infra.db.models.question_report import QuestionReport
 from src.infra.db.models.program_course_offering import ProgramCourseOffering
 from src.infra.db.models.staff_role import StaffRole
 from src.infra.db.models.staff_role_permission import StaffRolePermission
+from src.infra.db.models.staff_bot_access import StaffBotAccess
+from src.infra.db.models.staff_catalog_access import StaffCatalogAccess
 from src.infra.db.models.staff_user import StaffUser
 from src.infra.db.models.staff_user_permission import StaffUserPermission
 from src.infra.db.models.staff_user_role import StaffUserRole
@@ -40,6 +42,8 @@ __all__ = [
     "ProgramCourseOffering",
     "StaffRole",
     "StaffRolePermission",
+    "StaffBotAccess",
+    "StaffCatalogAccess",
     "StaffUser",
     "StaffUserPermission",
     "StaffUserRole",

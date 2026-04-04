@@ -36,6 +36,8 @@ def test_adaptive_runtime_models_have_expected_columns():
 def test_staff_access_models_have_expected_columns():
     from src.infra.db.models.audit_log import AuditLog
     from src.infra.db.models.permission import Permission
+    from src.infra.db.models.staff_bot_access import StaffBotAccess
+    from src.infra.db.models.staff_catalog_access import StaffCatalogAccess
     from src.infra.db.models.staff_role import StaffRole
     from src.infra.db.models.staff_role_permission import StaffRolePermission
     from src.infra.db.models.staff_user import StaffUser
@@ -49,6 +51,12 @@ def test_staff_access_models_have_expected_columns():
     staff_user_permission_columns = {
         column.name for column in StaffUserPermission.__table__.columns
     }
+    staff_bot_access_columns = {
+        column.name for column in StaffBotAccess.__table__.columns
+    }
+    staff_catalog_access_columns = {
+        column.name for column in StaffCatalogAccess.__table__.columns
+    }
     staff_role_permission_columns = {
         column.name for column in StaffRolePermission.__table__.columns
     }
@@ -57,6 +65,11 @@ def test_staff_access_models_have_expected_columns():
     assert {
         "id",
         "email",
+        "password_hash",
+        "must_change_password",
+        "password_updated_at",
+        "last_login_at",
+        "last_selected_bot_id",
         "is_active",
         "created_at",
         "updated_at",
@@ -65,6 +78,23 @@ def test_staff_access_models_have_expected_columns():
     assert {"id", "code", "name", "created_at"} <= permission_columns
     assert {"id", "staff_user_id", "staff_role_id"} <= staff_user_role_columns
     assert {"id", "staff_user_id", "permission_id"} <= staff_user_permission_columns
+    assert {
+        "id",
+        "staff_user_id",
+        "bot_id",
+        "is_active",
+        "created_at",
+    } <= staff_bot_access_columns
+    assert {
+        "id",
+        "staff_user_id",
+        "bot_id",
+        "program_code",
+        "level_code",
+        "course_code",
+        "is_active",
+        "created_at",
+    } <= staff_catalog_access_columns
     assert {"id", "staff_role_id", "permission_id"} <= staff_role_permission_columns
     assert {"id", "actor_staff_user_id", "action", "entity_type", "entity_id", "created_at"} <= audit_log_columns
 
