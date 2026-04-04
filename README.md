@@ -1,6 +1,6 @@
 # Adarkwa Study Bot
 
-`@Adarkwa_Study_Bot` is a Telegram study bot built as a webhook-first FastAPI application with a separate ARQ worker. The current focus is the launch foundation: secure configuration, resilient webhook handling, explicit Neon/Redis/R2 boundaries, and a structure that can absorb the adaptive learning engine next.
+This backend now serves two Telegram bots from one FastAPI + ARQ deployment: `tanjah` (the legacy/default bot) and `adarkwa` (`@Adarkwa_Study_Bot`). Both bots share the same Postgres question/user database, but runtime quiz state, webhook idempotency, course visibility, button labels, and rendered LaTeX image branding are bot-specific.
 
 ## Current Architecture
 
@@ -41,14 +41,18 @@ The active catalog is modeled as **first semester** for the UX flow, while the d
 
 Required foundation variables:
 
-- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_BOT_TOKEN` or `TANJAH_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
-- `WEBHOOK_SECRET`
+- `WEBHOOK_SECRET` or `TANJAH_WEBHOOK_SECRET`
 
 Optional foundation variables:
 
 - `WEBHOOK_URL`
+- `ADARKWA_BOT_TOKEN`
+- `ADARKWA_WEBHOOK_SECRET`
+- `TANJAH_WEBHOOK_PATH`
+- `ADARKWA_WEBHOOK_PATH`
 - `SENTRY_DSN`
 - `ARQ_QUEUE_NAME`
 - `R2_ACCOUNT_ID`
@@ -56,6 +60,23 @@ Optional foundation variables:
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET_NAME`
 - `R2_PUBLIC_BASE_URL`
+- `ADMIN_ALLOWED_ORIGINS`
+- `ADMIN_SESSION_COOKIE_DOMAIN`
+- `ADMIN_FRONTEND_BASE_URL`
+
+## Admin Frontend
+
+The staff admin UI lives in `admin/` and talks to the backend through `/admin/*` routes on the same shared deployment.
+
+Recommended local setup:
+
+1. run the backend API on `http://localhost:8000`
+2. run the admin frontend on `http://localhost:3000`
+3. set `NEXT_PUBLIC_ADMIN_API_BASE_URL=http://localhost:8000`
+4. keep `ADMIN_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000`
+5. leave `ADMIN_SESSION_COOKIE_DOMAIN` empty locally
+
+For production on a shared parent domain, set `ADMIN_SESSION_COOKIE_DOMAIN` only if you need the admin session cookie shared across subdomains.
 
 ## Running Locally
 
@@ -83,6 +104,14 @@ Run the migration against the configured database:
 alembic upgrade head
 ```
 
+For the admin platform, use this order on first deploy:
+
+1. run `alembic upgrade head`
+2. run `python scripts/bootstrap_admin.py --email <admin-email>`
+3. start the backend web process
+4. start or deploy the admin frontend
+5. sign in at the shared admin URL and complete the forced password change if prompted
+
 Import a single scored course question bank:
 
 ```bash
@@ -94,6 +123,8 @@ Import all discovered scored course banks under the shared `q_and_a/` directory:
 ```bash
 python scripts/import_question_bank.py --all
 ```
+
+For LaTeX questions, the importer renders and uploads one image set per configured bot. To backfill Adarkwa-branded PNGs after running `alembic upgrade head`, set `ADARKWA_BOT_TOKEN` and `ADARKWA_WEBHOOK_SECRET`, then rerun the import command for the affected courses.
 
 ## Health Endpoints
 
@@ -117,6 +148,7 @@ alembic upgrade head
 - Question-bank import workflow documentation lives in [docs/question_bank_import.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/question_bank_import.md).
 - Kubernetes manifests now include separate web, worker, and migration job roles under `k8s/`.
 - Telegram UX design docs live in `docs/plans/2026-03-17-telegram-ux-flow-design.md` and `docs/plans/2026-03-17-telegram-ux-flow.md`.
+- Bot-scoped admin access docs live in `docs/plans/2026-04-04-bot-scoped-admin-access-design.md` and `docs/plans/2026-04-04-bot-scoped-admin-access.md`.
 
 ## Production Deployment
 
@@ -152,11 +184,13 @@ GitHub is not responsible for:
 
 Production runtime secrets should be created from the VPS and stored in Kubernetes:
 
-- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_BOT_TOKEN` or `TANJAH_BOT_TOKEN`
+- `ADARKWA_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
 - `WEBHOOK_URL`
-- `WEBHOOK_SECRET`
+- `WEBHOOK_SECRET` or `TANJAH_WEBHOOK_SECRET`
+- `ADARKWA_WEBHOOK_SECRET`
 
 Optional values such as Sentry and R2 settings should follow the same model.
 

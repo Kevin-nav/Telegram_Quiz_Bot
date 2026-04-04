@@ -19,6 +19,14 @@ The deployment flow is:
 6. The VPS runs database migrations
 7. The VPS rolls out the webhook and worker deployments
 
+For the shared admin UI, keep the first-deploy sequence explicit:
+
+1. run database migrations
+2. bootstrap the first super-admin
+3. deploy the backend web process
+4. deploy or serve the admin frontend
+5. sign in through the shared admin URL and complete the forced password change if prompted
+
 ## 0. Production Incident And Target Shape
 
 The March 21, 2026 rollout incident exposed an unsafe production dependency chain:
@@ -149,11 +157,13 @@ Your VPS-hosted K3s cluster should have:
 
 Create `adarkwa-bot-secret` from the VPS with values such as:
 
-- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_BOT_TOKEN` or `TANJAH_BOT_TOKEN`
+- `ADARKWA_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
 - `WEBHOOK_URL`
-- `WEBHOOK_SECRET`
+- `WEBHOOK_SECRET` or `TANJAH_WEBHOOK_SECRET`
+- `ADARKWA_WEBHOOK_SECRET`
 - optional Sentry and R2 settings
 
 Do not regenerate these secrets from GitHub Actions on every deploy.
@@ -167,6 +177,13 @@ REDIS_URL=redis://:<strong-password>@10.0.0.5:6379/0
 Use the VPS private IP unless you have already set up a different stable host alias for the cluster.
 
 When only Redis changes, prefer patching just `REDIS_URL` instead of recreating the full secret.
+
+For the shared admin UI, also configure:
+
+- `ADMIN_ALLOWED_ORIGINS`
+- `ADMIN_SESSION_COOKIE_DOMAIN`
+
+These are non-secret runtime values and can live in `k8s/config.yaml` or the deploy-agent env file depending on your rollout shape.
 
 ### 3.4. Image Pull Strategy
 
@@ -387,6 +404,15 @@ If you want the cleanest production path, do this in order:
 9. push to `main`
 10. verify rollout
 
+For the admin platform specifically:
+
+1. run `alembic upgrade head`
+2. run `python scripts/bootstrap_admin.py --email <admin-email>`
+3. verify the backend serves `/admin/*`
+4. verify the admin frontend points at the backend origin through `NEXT_PUBLIC_ADMIN_API_BASE_URL`
+5. verify `ADMIN_ALLOWED_ORIGINS` includes the frontend origin
+6. set `ADMIN_SESSION_COOKIE_DOMAIN` only when you need cross-subdomain cookie sharing
+
 ## 12. Operator Change Matrix
 
 Use this when deciding whether a change belongs in GitHub, Kubernetes, Cloudflare, or the VPS itself.
@@ -407,10 +433,12 @@ VPS changes:
 
 Kubernetes secret changes:
 
-- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_BOT_TOKEN` or `TANJAH_BOT_TOKEN`
+- `ADARKWA_BOT_TOKEN`
 - `DATABASE_URL`
 - `REDIS_URL`
-- `WEBHOOK_SECRET`
+- `WEBHOOK_SECRET` or `TANJAH_WEBHOOK_SECRET`
+- `ADARKWA_WEBHOOK_SECRET`
 - R2 credentials
 
 Cloudflare changes:

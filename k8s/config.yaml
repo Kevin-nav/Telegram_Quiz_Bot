@@ -8,3 +8,5 @@ data:
   APP_ENV: "production"
   PORT: "8000"
   ARQ_QUEUE_NAME: "adarkwa-bot-background-v2"
+  ADMIN_ALLOWED_ORIGINS: "https://admin.adarkwa.study"
+  ADMIN_SESSION_COOKIE_DOMAIN: ".adarkwa.study"
