@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.bootstrap import create_app_state, shutdown_web_app, startup_web_app
 from src.api.admin_audit import router as admin_audit_router
@@ -9,6 +10,7 @@ from src.api.admin_questions import router as admin_questions_router
 from src.api.admin_staff import router as admin_staff_router
 from src.api.health import router as health_router
 from src.api.webhooks import router as webhook_router
+from src.core.config import settings
 
 import logging
 
@@ -28,6 +30,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.state.runtime = None
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.parsed_admin_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(admin_auth_router)
 app.include_router(admin_staff_router)
 app.include_router(admin_catalog_router)
