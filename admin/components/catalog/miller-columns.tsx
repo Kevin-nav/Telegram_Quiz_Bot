@@ -1,22 +1,37 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { ChevronRight, Circle, CheckCircle2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronRight, Circle, CheckCircle2, Loader2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { MOCK_CATALOG, type CatalogEntry } from "@/lib/mock-data";
+import {
+  fetchCatalogTree,
+  saveCatalogOffering,
+  type CatalogNode,
+} from "@/lib/api";
 
 const LEVEL_LABELS = ["Faculty", "Program", "Level", "Semester", "Course"];
 
 export function MillerColumns() {
-  const [catalog, setCatalog] = useState(MOCK_CATALOG);
+  const queryClient = useQueryClient();
+  const catalogQuery = useQuery({
+    queryKey: ["catalog-tree"],
+    queryFn: fetchCatalogTree,
+  });
+  const [catalog, setCatalog] = useState<CatalogNode[]>([]);
   const [selections, setSelections] = useState<string[]>([]);
 
+  useEffect(() => {
+    setCatalog(catalogQuery.data ?? []);
+    setSelections([]);
+  }, [catalogQuery.data]);
+
   // Derive the columns from the selection path
-  const columns: { label: string; items: CatalogEntry[]; selectedCode: string | null }[] = [];
+  const columns: { label: string; items: CatalogNode[]; selectedCode: string | null }[] = [];
 
   let currentItems = catalog;
   for (let depth = 0; depth < LEVEL_LABELS.length; depth++) {
@@ -41,22 +56,53 @@ export function MillerColumns() {
     });
   }
 
-  function handleToggleActive(path: string[], code: string) {
+  const toggleOfferingMutation = useMutation({
+    mutationFn: saveCatalogOffering,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["catalog-tree"] });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to update course availability.",
+      );
+      setCatalog(catalogQuery.data ?? []);
+    },
+  });
+
+  function handleToggleActive(path: string[], item: CatalogNode) {
+    if (path.length < 4) {
+      return;
+    }
+
+    const [faculty_code, program_code, level_code, semester_code] = path;
+    const nextActive = !(item.active ?? true);
+
     setCatalog((prev) => {
-      const next = JSON.parse(JSON.stringify(prev)) as CatalogEntry[];
+      const next = JSON.parse(JSON.stringify(prev)) as CatalogNode[];
       let items = next;
       for (const segment of path) {
         const parent = items.find((i) => i.code === segment);
         if (!parent?.children) return prev;
         items = parent.children;
       }
-      const target = items.find((i) => i.code === code);
+      const target = items.find((i) => i.code === item.code);
       if (!target) return prev;
-      target.active = !target.active;
+      target.active = nextActive;
       toast.success(
         `${target.name} is now ${target.active ? "active" : "inactive"}`,
       );
       return next;
+    });
+
+    toggleOfferingMutation.mutate({
+      faculty_code,
+      program_code,
+      level_code,
+      semester_code,
+      course_code: item.code,
+      is_active: nextActive,
     });
   }
 
@@ -67,6 +113,16 @@ export function MillerColumns() {
 
   return (
     <div className="rounded-lg border bg-card">
+      {catalogQuery.isLoading ? (
+        <div className="flex h-[500px] items-center justify-center text-sm text-muted-foreground">
+          <Loader2 className="mr-2 size-4 animate-spin" />
+          Loading catalog...
+        </div>
+      ) : catalogQuery.isError ? (
+        <div className="flex h-[500px] items-center justify-center text-sm text-destructive">
+          Unable to load catalog.
+        </div>
+      ) : (
       <div className="flex divide-x overflow-x-auto">
         {columns.map((col, depth) => (
           <div key={depth} className="min-w-[220px] flex-1">
@@ -117,11 +173,10 @@ export function MillerColumns() {
                         {/* Toggle for leaf nodes */}
                         {isLeaf && (
                           <Switch
-                            checked={item.active}
-                            onCheckedChange={(e) => {
-                              e; // consume
-                              handleToggleActive(getPathForDepth(depth), item.code);
-                            }}
+                            checked={item.active ?? true}
+                            onCheckedChange={() =>
+                              handleToggleActive(getPathForDepth(depth), item)
+                            }
                             onClick={(e) => e.stopPropagation()}
                             className="scale-75"
                           />
@@ -152,9 +207,10 @@ export function MillerColumns() {
           </div>
         )}
       </div>
+      )}
 
       {/* Breadcrumb */}
-      {selections.length > 0 && (
+      {!catalogQuery.isError && selections.length > 0 && (
         <div className="border-t px-4 py-2">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             {selections.map((code, i) => {

@@ -2,12 +2,14 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FormEvent } from "react";
-import { Suspense, startTransition, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { ShieldCheck, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchAdminPrincipal, loginAdmin } from "@/lib/api";
 
 function LoginForm() {
   const router = useRouter();
@@ -16,10 +18,22 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const principalQuery = useQuery({
+    queryKey: ["admin-principal"],
+    queryFn: fetchAdminPrincipal,
+    retry: false,
+  });
 
   const nextPath = searchParams.get("next") || "/";
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (principalQuery.data) {
+      const destination = principalQuery.data.must_change_password ? "/set-password" : nextPath;
+      router.replace(destination);
+    }
+  }, [nextPath, principalQuery.data, router]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
@@ -29,18 +43,15 @@ function LoginForm() {
     }
 
     setIsSubmitting(true);
-
-    // Demo: set session cookie & redirect
-    document.cookie = [
-      `admin_session=${encodeURIComponent("101")}`,
-      "path=/",
-      "SameSite=Lax",
-    ].join("; ");
-
-    startTransition(() => {
-      router.push(nextPath);
+    try {
+      const principal = await loginAdmin(email, password);
+      const destination = principal.must_change_password ? "/set-password" : nextPath;
+      router.replace(destination);
       router.refresh();
-    });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to sign in.");
+      setIsSubmitting(false);
+    }
   }
 
   return (

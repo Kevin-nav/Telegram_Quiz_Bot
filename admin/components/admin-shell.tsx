@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -12,7 +14,7 @@ import {
   Inbox,
   LogOut,
   ShieldCheck,
-  Search,
+  Loader2,
   ChevronsUpDown,
 } from "lucide-react";
 
@@ -44,15 +46,17 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { CommandPalette } from "@/components/command-palette";
-import { MOCK_CURRENT_USER } from "@/lib/mock-data";
+import { BotWorkspaceSwitcher } from "@/components/bot-workspace-switcher";
+import { fetchAdminPrincipal, logoutAdmin } from "@/lib/api";
+import { toast } from "sonner";
 
 const navItems = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/staff", label: "Staff", icon: Users },
-  { href: "/catalog", label: "Catalog", icon: FolderTree },
-  { href: "/questions", label: "Questions", icon: FileQuestion },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/reports", label: "Reports", icon: Inbox },
+  { href: "/", label: "Overview", icon: LayoutDashboard, permission: null },
+  { href: "/staff", label: "Staff", icon: Users, permission: "staff.view" },
+  { href: "/catalog", label: "Catalog", icon: FolderTree, permission: "catalog.view" },
+  { href: "/questions", label: "Questions", icon: FileQuestion, permission: "questions.view" },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, permission: "analytics.view" },
+  { href: "/reports", label: "Reports", icon: Inbox, permission: "audit.view" },
 ];
 
 function getInitials(name: string) {
@@ -72,7 +76,53 @@ function getPageTitle(pathname: string) {
 
 export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
-  const user = MOCK_CURRENT_USER;
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const principalQuery = useQuery({
+    queryKey: ["admin-principal"],
+    queryFn: fetchAdminPrincipal,
+    retry: false,
+  });
+  const principal = principalQuery.data ?? null;
+
+  useEffect(() => {
+    if (principalQuery.isError) {
+      router.replace("/login");
+      return;
+    }
+
+    if (principal?.must_change_password && pathname !== "/set-password") {
+      router.replace("/set-password");
+    }
+  }, [pathname, principal, principalQuery.isError, router]);
+
+  async function handleLogout() {
+    try {
+      await logoutAdmin();
+    } catch {
+      // Continue the local sign-out flow even if the server already expired.
+    } finally {
+      queryClient.clear();
+      await router.replace("/login");
+      router.refresh();
+      toast.success("Signed out.");
+    }
+  }
+
+  if (!principal && principalQuery.isLoading) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.permission) {
+      return true;
+    }
+    return principal?.permission_codes?.includes(item.permission) ?? false;
+  });
 
   return (
     <SidebarProvider>
@@ -100,7 +150,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
             <SidebarGroupLabel>Platform</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const isActive =
                     item.href === "/"
                       ? pathname === "/"
@@ -135,13 +185,15 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                     >
                       <Avatar className="size-8 rounded-lg">
                         <AvatarFallback className="rounded-lg text-xs">
-                          {getInitials(user.display_name)}
+                          {getInitials(principal?.display_name ?? "Admin")}
                         </AvatarFallback>
                       </Avatar>
                       <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-semibold">{user.display_name}</span>
+                        <span className="truncate font-semibold">
+                          {principal?.display_name ?? "Admin"}
+                        </span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {user.roles[0]?.replace("_", " ")}
+                          {principal?.role_codes?.[0]?.replace("_", " ") ?? "staff"}
                         </span>
                       </div>
                       <ChevronsUpDown className="ml-auto size-4" />
@@ -158,24 +210,24 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                     <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                       <Avatar className="size-8 rounded-lg">
                         <AvatarFallback className="rounded-lg text-xs">
-                          {getInitials(user.display_name)}
+                          {getInitials(principal?.display_name ?? "Admin")}
                         </AvatarFallback>
                       </Avatar>
                       <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-semibold">{user.display_name}</span>
+                        <span className="truncate font-semibold">{principal?.display_name ?? "Admin"}</span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {user.email}
+                          {principal?.email ?? "staff"}
                         </span>
+                        {principal?.active_bot_id ? (
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            {principal.active_bot_id}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem>
-                    <ShieldCheck className="mr-2 size-4" />
-                    Revoke Other Sessions
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="mr-2 size-4" />
                     Log Out
                   </DropdownMenuItem>
@@ -193,6 +245,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
           <Separator orientation="vertical" className="mr-2 h-4" />
           <h1 className="text-sm font-medium">{getPageTitle(pathname)}</h1>
           <div className="ml-auto flex items-center gap-2">
+            {principal ? <BotWorkspaceSwitcher principal={principal} /> : null}
             <CommandPalette />
           </div>
         </header>

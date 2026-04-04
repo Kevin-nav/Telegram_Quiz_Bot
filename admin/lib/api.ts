@@ -4,6 +4,11 @@ export type AdminPrincipal = {
   staff_user_id: number;
   email: string;
   display_name: string | null;
+  role_codes: string[];
+  permission_codes: string[];
+  bot_access: string[];
+  active_bot_id: string | null;
+  must_change_password: boolean;
 };
 
 export type AdminRole = {
@@ -20,11 +25,17 @@ export type AdminPermission = {
 
 export type AdminStaffUser = {
   id: number;
+  staff_user_id: number;
   email: string;
   display_name: string | null;
   is_active: boolean;
-  roles: string[];
-  permissions: string[];
+  must_change_password?: boolean;
+  role_codes: string[];
+  roles?: string[];
+  permission_codes: string[];
+  permissions?: string[];
+  bot_access: string[];
+  catalog_access?: AdminCatalogAccessEntry[];
 };
 
 export type StaffFormValue = {
@@ -32,6 +43,17 @@ export type StaffFormValue = {
   display_name: string;
   is_active: boolean;
   role_codes: string[];
+  permission_codes: string[];
+  bot_access: string[];
+  catalog_access: AdminCatalogAccessEntry[];
+  temporary_password?: string;
+};
+
+export type AdminCatalogAccessEntry = {
+  bot_id: string;
+  program_code: string | null;
+  level_code: string | null;
+  course_code: string | null;
 };
 
 export type CatalogQuery = {
@@ -81,6 +103,14 @@ export type QuestionRecord = {
   band: number;
   topic_id: string;
   cognitive_level: string | null;
+  has_latex?: boolean;
+  base_score?: number | null;
+  note_reference?: number | null;
+  distractor_complexity?: number | null;
+  processing_complexity?: number | null;
+  negative_stem?: number | null;
+  raw_score?: number | null;
+  scaled_score?: number | null;
   updated_at: string | null;
 };
 
@@ -121,38 +151,11 @@ function buildUrl(path: string) {
   return `${baseUrl}${normalizedPath}`;
 }
 
-function readCookie(name: string) {
-  if (typeof document === "undefined") {
-    return null;
-  }
-
-  const cookies = document.cookie.split(";").map((entry) => entry.trim());
-  const match = cookies.find((entry) => entry.startsWith(`${name}=`));
-  if (!match) {
-    return null;
-  }
-  return decodeURIComponent(match.slice(name.length + 1));
-}
-
-function resolveAdminUserId() {
-  const sessionId = readCookie("admin_session");
-  if (!sessionId || !/^\d+$/.test(sessionId)) {
-    return null;
-  }
-  return sessionId;
-}
-
 function buildHeaders(init: RequestInit["headers"], body: BodyInit | null | undefined) {
   const headers = new Headers(init);
   if (body != null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-
-  const adminUserId = resolveAdminUserId();
-  if (adminUserId && !headers.has("X-Admin-User-Id")) {
-    headers.set("X-Admin-User-Id", adminUserId);
-  }
-
   return headers;
 }
 
@@ -239,6 +242,36 @@ export async function fetchAdminPrincipal() {
   return adminFetch<AdminPrincipal>("/admin/auth/me");
 }
 
+export async function loginAdmin(email: string, password: string) {
+  return adminFetch<AdminPrincipal>("/admin/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logoutAdmin() {
+  return adminFetch<void>("/admin/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function setAdminPassword(
+  current_password: string,
+  new_password: string,
+) {
+  return adminFetch<AdminPrincipal>("/admin/auth/set-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password, new_password }),
+  });
+}
+
+export async function selectAdminBot(bot_id: string) {
+  return adminFetch<AdminPrincipal>("/admin/auth/select-bot", {
+    method: "POST",
+    body: JSON.stringify({ bot_id }),
+  });
+}
+
 export async function listStaffUsers() {
   const payload = await adminFetch<unknown>("/admin/staff");
   return normalizeListResponse<AdminStaffUser>(payload);
@@ -258,6 +291,16 @@ export async function saveStaffUser(
   return adminFetch<AdminStaffUser>(path, {
     method,
     body: JSON.stringify(payload),
+  });
+}
+
+export async function resetStaffPassword(
+  staffUserId: number,
+  temporary_password: string,
+) {
+  return adminFetch<AdminStaffUser>(`/admin/staff/${staffUserId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ temporary_password }),
   });
 }
 
@@ -361,9 +404,7 @@ export async function listQuestions() {
   return normalizeListResponse<QuestionRecord>(payload);
 }
 
-export async function saveQuestion(questionId: number | null, payload: QuestionDraft) {
-  const path = questionId === null ? "/admin/questions" : `/admin/questions/${questionId}`;
-  const method = questionId === null ? "POST" : "PATCH";
+export async function saveQuestion(questionKey: string, payload: QuestionDraft) {
   const body = {
     ...payload,
     options: payload.options_text
@@ -372,8 +413,8 @@ export async function saveQuestion(questionId: number | null, payload: QuestionD
       .filter(Boolean),
   };
 
-  return adminFetch<QuestionRecord>(path, {
-    method,
+  return adminFetch<QuestionRecord>(`/admin/questions/${questionKey}`, {
+    method: "PATCH",
     body: JSON.stringify(body),
   });
 }
@@ -393,8 +434,13 @@ export const adminApi = {
   listCatalogItems,
   listQuestions,
   listStaffUsers,
+  loginAdmin,
   saveCatalogOffering,
   saveQuestion,
   saveStaffUser,
+  resetStaffPassword,
+  selectAdminBot,
+  setAdminPassword,
+  logoutAdmin,
   updateStaffPermissions,
 };

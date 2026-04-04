@@ -2,13 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import {
-  Search,
-  Plus,
-  Upload,
-  FileQuestion,
-  Filter,
-} from "lucide-react";
+import { Search, Upload, FileQuestion, Filter, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { AdminShell } from "@/components/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,33 +25,34 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { QuestionEditorDialog } from "@/components/questions/question-editor-dialog";
-import { MOCK_QUESTIONS, type Question } from "@/lib/mock-data";
+import { listQuestions, type QuestionRecord } from "@/lib/api";
 
 export default function QuestionsPage() {
   const [search, setSearch] = useState("");
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
+  const [selectedQuestion, setSelectedQuestion] = useState<QuestionRecord | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
-  const uniqueCourses = [...new Set(MOCK_QUESTIONS.map((q) => q.course_code))];
+  const questionsQuery = useQuery({
+    queryKey: ["questions"],
+    queryFn: listQuestions,
+  });
 
-  const filtered = MOCK_QUESTIONS.filter((q) => {
+  const questions = questionsQuery.data ?? [];
+  const uniqueCourses = [...new Set(questions.map((q) => q.course_id))];
+
+  const filtered = questions.filter((q) => {
     const matchesSearch =
       q.question_text.toLowerCase().includes(search.toLowerCase()) ||
       q.question_key.toLowerCase().includes(search.toLowerCase());
-    const matchesCourse = courseFilter === "all" || q.course_code === courseFilter;
+    const matchesCourse = courseFilter === "all" || q.course_id === courseFilter;
     const matchesStatus = statusFilter === "all" || q.status === statusFilter;
     return matchesSearch && matchesCourse && matchesStatus;
   });
 
-  function handleEdit(question: Question) {
+  function handleEdit(question: QuestionRecord) {
     setSelectedQuestion(question);
-    setEditorOpen(true);
-  }
-
-  function handleCreate() {
-    setSelectedQuestion(null);
     setEditorOpen(true);
   }
 
@@ -68,17 +64,13 @@ export default function QuestionsPage() {
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Questions</h2>
             <p className="text-sm text-muted-foreground">
-              Manage the question bank across all courses.
+              Manage the question bank for the active bot workspace.
             </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" render={<Link href="/questions/import" />} nativeButton={false}>
               <Upload className="mr-2 size-4" />
               Bulk Import
-            </Button>
-            <Button onClick={handleCreate}>
-              <Plus className="mr-2 size-4" />
-              New Question
             </Button>
           </div>
         </div>
@@ -114,9 +106,11 @@ export default function QuestionsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="needs_review">Needs Review</SelectItem>
+              <SelectItem value="ready">Ready</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
               <SelectItem value="draft">Draft</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+              <SelectItem value="invalid">Invalid</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -128,16 +122,16 @@ export default function QuestionsPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">{MOCK_QUESTIONS.length}</p>
+              <p className="text-2xl font-bold">{questions.length}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">Ready</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">
-                {MOCK_QUESTIONS.filter((q) => q.status === "active").length}
+                {questions.filter((q) => q.status === "ready").length}
               </p>
             </CardContent>
           </Card>
@@ -147,7 +141,7 @@ export default function QuestionsPage() {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">
-                {MOCK_QUESTIONS.filter((q) => q.has_latex).length}
+                {questions.filter((q) => q.has_latex).length}
               </p>
             </CardContent>
           </Card>
@@ -167,7 +161,20 @@ export default function QuestionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 ? (
+              {questionsQuery.isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <Loader2 className="mx-auto mb-2 size-5 animate-spin" />
+                    Loading questions...
+                  </TableCell>
+                </TableRow>
+              ) : questionsQuery.isError ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-destructive">
+                    Unable to load questions.
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     <FileQuestion className="mx-auto mb-2 size-8 text-muted-foreground/40" />
@@ -177,7 +184,7 @@ export default function QuestionsPage() {
               ) : (
                 filtered.map((q) => (
                   <TableRow
-                    key={q.id}
+                    key={q.question_key}
                     className="cursor-pointer"
                     onClick={() => handleEdit(q)}
                   >
@@ -187,13 +194,13 @@ export default function QuestionsPage() {
                     <TableCell className="max-w-xs truncate">{q.question_text}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">
-                        {q.course_code}
+                        {q.course_id}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{q.band}</TableCell>
                     <TableCell>
                       <Badge
-                        variant={q.status === "active" ? "default" : "secondary"}
+                        variant={q.status === "ready" ? "default" : "secondary"}
                         className="text-xs"
                       >
                         {q.status}

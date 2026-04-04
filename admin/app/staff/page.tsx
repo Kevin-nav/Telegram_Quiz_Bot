@@ -8,7 +8,10 @@ import {
   UserX,
   UserCheck,
   Search,
+  Loader2,
 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { AdminShell } from "@/components/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,50 +39,103 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { StaffSheet } from "@/components/staff/staff-sheet";
-import { MOCK_STAFF, type StaffUser } from "@/lib/mock-data";
+import {
+  listStaffUsers,
+  resetStaffPassword,
+  saveStaffUser,
+  type AdminStaffUser,
+} from "@/lib/api";
+import { toast } from "sonner";
+
+const BOT_LABELS: Record<string, string> = {
+  tanjah: "Tanjah",
+  adarkwa: "Adarkwa",
+};
+
+function displayBotAccess(botAccess: string[]) {
+  return botAccess.map((botId) => BOT_LABELS[botId] ?? botId);
+}
 
 export default function StaffPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [staff, setStaff] = useState(MOCK_STAFF);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingStaff, setEditingStaff] = useState<StaffUser | null>(null);
+  const [editingStaff, setEditingStaff] = useState<AdminStaffUser | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const [resetTarget, setResetTarget] = useState<StaffUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<AdminStaffUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
 
-  const filtered = staff.filter(
-    (s) =>
-      s.display_name.toLowerCase().includes(search.toLowerCase()) ||
-      s.email.toLowerCase().includes(search.toLowerCase()),
-  );
+  const staffQuery = useQuery({
+    queryKey: ["staff-users"],
+    queryFn: listStaffUsers,
+  });
+
+  const staff = staffQuery.data ?? [];
+  const searchValue = search.toLowerCase();
+  const filtered = staff.filter((s) => {
+    return (
+      (s.display_name ?? "").toLowerCase().includes(searchValue) ||
+      s.email.toLowerCase().includes(searchValue) ||
+      s.role_codes.join(" ").toLowerCase().includes(searchValue) ||
+      s.bot_access.join(" ").toLowerCase().includes(searchValue)
+    );
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (user: AdminStaffUser) =>
+      saveStaffUser(user.staff_user_id, {
+        email: user.email,
+        display_name: user.display_name ?? "",
+        is_active: !user.is_active,
+        role_codes: user.role_codes,
+        permission_codes: user.permission_codes,
+        bot_access: user.bot_access,
+        catalog_access: user.catalog_access ?? [],
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["staff-users"] });
+      toast.success("Staff user updated.");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Unable to update staff user.");
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async () => {
+      if (!resetTarget) {
+        throw new Error("No staff user selected.");
+      }
+      return resetStaffPassword(resetTarget.staff_user_id, resetPassword);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["staff-users"] });
+      toast.success("Temporary password issued.");
+      setResetDialogOpen(false);
+      setResetTarget(null);
+      setResetPassword("");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Unable to reset password.");
+    },
+  });
 
   function handleCreate() {
     setEditingStaff(null);
     setSheetOpen(true);
   }
 
-  function handleEdit(user: StaffUser) {
+  function handleEdit(user: AdminStaffUser) {
     setEditingStaff(user);
     setSheetOpen(true);
   }
 
-  function handleResetPassword(user: StaffUser) {
+  function handleResetPassword(user: AdminStaffUser) {
     setResetTarget(user);
+    setResetPassword("");
     setResetDialogOpen(true);
-  }
-
-  function confirmReset() {
-    // TODO: Wire to API
-    setResetDialogOpen(false);
-    setResetTarget(null);
-  }
-
-  function handleToggleActive(user: StaffUser) {
-    setStaff((prev) =>
-      prev.map((s) =>
-        s.id === user.id ? { ...s, is_active: !s.is_active } : s,
-      ),
-    );
   }
 
   return (
@@ -89,7 +145,7 @@ export default function StaffPage() {
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Staff</h2>
             <p className="text-sm text-muted-foreground">
-              Manage team members and their permissions.
+              Manage team members, bot access, and permissions.
             </p>
           </div>
           <Button onClick={handleCreate}>
@@ -98,18 +154,16 @@ export default function StaffPage() {
           </Button>
         </div>
 
-        {/* Search */}
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search by name or email..."
+            placeholder="Search by name, email, role, or bot..."
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
-        {/* Table */}
         <div className="rounded-lg border">
           <Table>
             <TableHeader>
@@ -118,20 +172,41 @@ export default function StaffPage() {
                 <TableHead>Email</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Roles</TableHead>
+                <TableHead>Bots</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 ? (
+              {staffQuery.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    <Loader2 className="mx-auto mb-2 size-5 animate-spin" />
+                    Loading staff...
+                  </TableCell>
+                </TableRow>
+              ) : staffQuery.isError ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-destructive">
+                    Unable to load staff.
+                  </TableCell>
+                </TableRow>
+              ) : filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     No staff members found.
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.display_name}</TableCell>
+                  <TableRow key={user.staff_user_id}>
+                    <TableCell className="font-medium">
+                      <div className="grid gap-1">
+                        <span>{user.display_name || "Unnamed staff"}</span>
+                        {user.must_change_password ? (
+                          <span className="text-xs text-muted-foreground">Temporary password pending</span>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{user.email}</TableCell>
                     <TableCell>
                       <Badge variant={user.is_active ? "default" : "secondary"}>
@@ -140,9 +215,18 @@ export default function StaffPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {user.roles.map((role) => (
+                        {user.role_codes.map((role) => (
                           <Badge key={role} variant="outline" className="text-xs">
                             {role.replace("_", " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {displayBotAccess(user.bot_access).map((bot) => (
+                          <Badge key={bot} variant="secondary" className="text-xs">
+                            {bot}
                           </Badge>
                         ))}
                       </div>
@@ -161,7 +245,10 @@ export default function StaffPage() {
                           <DropdownMenuItem onClick={() => handleEdit(user)}>
                             Edit details
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleToggleActive(user)}>
+                          <DropdownMenuItem
+                            onClick={() => toggleActiveMutation.mutate(user)}
+                            disabled={toggleActiveMutation.isPending}
+                          >
                             {user.is_active ? (
                               <>
                                 <UserX className="mr-2 size-4" />
@@ -193,36 +280,53 @@ export default function StaffPage() {
         </div>
       </div>
 
-      {/* Create/Edit Sheet */}
       <StaffSheet
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         staff={editingStaff}
       />
 
-      {/* Reset Password Dialog */}
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive">Reset Password</DialogTitle>
             <DialogDescription>
-              This will immediately invalidate all active sessions for{" "}
-              <strong>{resetTarget?.display_name}</strong> and require them to log
-              in with a new temporary password.
+              This will invalidate all active sessions for{" "}
+              <strong>{resetTarget?.display_name ?? resetTarget?.email}</strong> and issue a new temporary password.
             </DialogDescription>
           </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="reset-password">Temporary password</Label>
+            <Input
+              id="reset-password"
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="Enter a new temporary password"
+            />
+          </div>
           <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
             <p className="text-sm text-destructive">
-              ⚠ This action cannot be undone. The user will be logged out of all
-              devices immediately.
+              This action logs the user out of all devices immediately.
             </p>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={confirmReset}>
-              Reset Password
+            <Button
+              variant="destructive"
+              onClick={() => resetPasswordMutation.mutate()}
+              disabled={!resetPassword || resetPasswordMutation.isPending}
+            >
+              {resetPasswordMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                "Reset Password"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,20 +2,38 @@
 
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ShieldCheck, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchAdminPrincipal, setAdminPassword } from "@/lib/api";
 
 export default function SetPasswordPage() {
   const router = useRouter();
+  const principalQuery = useQuery({
+    queryKey: ["admin-principal"],
+    queryFn: fetchAdminPrincipal,
+    retry: false,
+  });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (principalQuery.isError) {
+      router.replace("/login");
+      return;
+    }
+
+    if (principalQuery.data && !principalQuery.data.must_change_password) {
+      router.replace("/");
+    }
+  }, [principalQuery.data, principalQuery.isError, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,8 +51,7 @@ export default function SetPasswordPage() {
 
     setIsSubmitting(true);
     try {
-      // TODO: Wire to adminApi.setAdminPassword(currentPassword, newPassword)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await setAdminPassword(currentPassword, newPassword);
       router.replace("/");
       router.refresh();
     } catch {
