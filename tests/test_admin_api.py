@@ -109,12 +109,18 @@ class FakeStaffRepo:
         email: str,
         display_name: str | None = None,
         is_active: bool = True,
+        password_hash: str | None = None,
+        must_change_password: bool = True,
+        last_selected_bot_id: str | None = None,
     ):
         user = SimpleNamespace(
             id=self.next_id,
             email=email,
             display_name=display_name,
             is_active=is_active,
+            password_hash=password_hash,
+            must_change_password=must_change_password,
+            last_selected_bot_id=last_selected_bot_id,
         )
         self.users[user.id] = user
         self.next_id += 1
@@ -125,7 +131,14 @@ class FakeStaffRepo:
         if user is None:
             return None
 
-        for field in ("email", "display_name", "is_active"):
+        for field in (
+            "email",
+            "display_name",
+            "is_active",
+            "password_hash",
+            "must_change_password",
+            "last_selected_bot_id",
+        ):
             if field in updates and updates[field] is not None:
                 setattr(user, field, updates[field])
         return user
@@ -153,6 +166,36 @@ class FakePermissionRepo:
     ):
         self.permissions_by_user[staff_user_id] = list(dict.fromkeys(permission_codes))
         return self.permissions_by_user[staff_user_id]
+
+
+class FakeBotAccessRepo:
+    def __init__(self, bot_access_by_user=None):
+        self.bot_access_by_user = {
+            staff_user_id: list(bot_ids)
+            for staff_user_id, bot_ids in (bot_access_by_user or {}).items()
+        }
+
+    async def list_active_bot_ids_for_user(self, staff_user_id: int):
+        return list(self.bot_access_by_user.get(staff_user_id, []))
+
+    async def replace_bot_access_for_user(self, staff_user_id: int, bot_ids: list[str]):
+        self.bot_access_by_user[staff_user_id] = list(bot_ids)
+        return self.bot_access_by_user[staff_user_id]
+
+
+class FakeCatalogAccessRepo:
+    def __init__(self, catalog_access_by_user=None):
+        self.catalog_access_by_user = {
+            staff_user_id: list(entries)
+            for staff_user_id, entries in (catalog_access_by_user or {}).items()
+        }
+
+    async def list_catalog_access_for_user(self, staff_user_id: int):
+        return list(self.catalog_access_by_user.get(staff_user_id, []))
+
+    async def replace_catalog_access_for_user(self, staff_user_id: int, entries):
+        self.catalog_access_by_user[staff_user_id] = list(entries)
+        return self.catalog_access_by_user[staff_user_id]
 
 
 class FakeAuditRepo:
@@ -435,10 +478,14 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
         roles_by_user={202: ["content_editor"]},
     )
     fake_permission_repo = FakePermissionRepo({202: ["questions.view"]})
+    fake_bot_access_repo = FakeBotAccessRepo({202: ["adarkwa"]})
+    fake_catalog_access_repo = FakeCatalogAccessRepo({202: []})
     fake_audit_repo = FakeAuditRepo()
     staff_service = AdminStaffService(
         staff_user_repository=fake_staff_repo,
         permission_repository=fake_permission_repo,
+        staff_bot_access_repository=fake_bot_access_repo,
+        staff_catalog_access_repository=fake_catalog_access_repo,
         audit_log_repository=fake_audit_repo,
     )
 
@@ -478,6 +525,8 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
             "display_name": "New Admin",
             "role_codes": ["super_admin"],
             "permission_codes": ["catalog.view", "questions.edit"],
+            "bot_access": ["adarkwa", "tanjah"],
+            "temporary_password": "temp-password",
         },
     )
     assert create_response.status_code == 201
@@ -490,6 +539,7 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
         json={
             "permission_codes": ["catalog.view", "audit.view"],
             "role_codes": ["super_admin"],
+            "bot_access": ["adarkwa", "tanjah"],
             "is_active": False,
         },
     )
@@ -763,10 +813,14 @@ async def test_admin_staff_lookup_requires_permission(async_client, monkeypatch)
         ],
     )
     fake_permission_repo = FakePermissionRepo()
+    fake_bot_access_repo = FakeBotAccessRepo({202: ["adarkwa"]})
+    fake_catalog_access_repo = FakeCatalogAccessRepo({202: []})
     fake_audit_repo = FakeAuditRepo()
     staff_service = AdminStaffService(
         staff_user_repository=fake_staff_repo,
         permission_repository=fake_permission_repo,
+        staff_bot_access_repository=fake_bot_access_repo,
+        staff_catalog_access_repository=fake_catalog_access_repo,
         audit_log_repository=fake_audit_repo,
     )
 

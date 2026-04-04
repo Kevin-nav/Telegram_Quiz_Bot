@@ -50,10 +50,16 @@ async def create_staff_user(
 ):
     service = get_admin_staff_service(request)
     payload = await request.json()
-    return await service.create_staff_user(
-        payload,
-        actor_staff_user_id=principal.staff_user_id,
-    )
+    try:
+        return await service.create_staff_user(
+            payload,
+            actor_staff_user_id=principal.staff_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.patch("/{staff_user_id}")
@@ -64,11 +70,46 @@ async def update_staff_user(
 ):
     service = get_admin_staff_service(request)
     payload = await request.json()
-    updated = await service.update_staff_user(
-        staff_user_id,
-        payload,
-        actor_staff_user_id=principal.staff_user_id,
-    )
+    try:
+        updated = await service.update_staff_user(
+            staff_user_id,
+            payload,
+            actor_staff_user_id=principal.staff_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff user not found.",
+        )
+    return updated
+
+
+@router.post("/{staff_user_id}/reset-password")
+async def reset_staff_password(
+    staff_user_id: int,
+    request: Request,
+    principal: AdminPrincipal = Depends(
+        require_admin_permission("staff.edit_permissions")
+    ),
+):
+    service = get_admin_staff_service(request)
+    payload = await request.json()
+    try:
+        updated = await service.reset_staff_password(
+            staff_user_id,
+            str(payload.get("temporary_password") or ""),
+            actor_staff_user_id=principal.staff_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
