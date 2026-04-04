@@ -36,6 +36,16 @@ class QuestionBank(Base):
     render_checksum: Mapped[str | None] = mapped_column(String(128), nullable=True)
     explanation_asset_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     explanation_asset_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    explanation_asset_keys_by_bot: Mapped[dict[str, str] | None] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=True,
+    )
+    explanation_asset_urls_by_bot: Mapped[dict[str, str] | None] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=True,
+    )
     variant_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="draft", server_default="draft", index=True

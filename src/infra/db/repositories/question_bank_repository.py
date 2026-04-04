@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.infra.db.models.question_asset_variant import QuestionAssetVariant
 from src.infra.db.models.question_bank import QuestionBank
 from src.infra.db.session import AsyncSessionLocal
@@ -28,17 +29,26 @@ class QuestionBankRepository:
             return question
 
     async def replace_asset_variants(
-        self, question_id: int, variants: Sequence[dict]
+        self,
+        question_id: int,
+        variants: Sequence[dict],
+        *,
+        bot_id: str = TANJAH_BOT_ID,
     ) -> list[QuestionAssetVariant]:
         async with self.session_factory() as session:
             await session.execute(
                 delete(QuestionAssetVariant).where(
-                    QuestionAssetVariant.question_id == question_id
+                    QuestionAssetVariant.question_id == question_id,
+                    QuestionAssetVariant.bot_id == bot_id,
                 )
             )
 
             records = [
-                QuestionAssetVariant(question_id=question_id, **variant)
+                QuestionAssetVariant(
+                    question_id=question_id,
+                    bot_id=bot_id,
+                    **{key: value for key, value in variant.items() if key != "bot_id"},
+                )
                 for variant in variants
             ]
             if records:
@@ -93,6 +103,8 @@ class QuestionBankRepository:
         render_checksum: str | None = None,
         explanation_asset_key: str | None = None,
         explanation_asset_url: str | None = None,
+        explanation_asset_keys_by_bot: dict[str, str] | None = None,
+        explanation_asset_urls_by_bot: dict[str, str] | None = None,
         variant_count: int | None = None,
     ) -> QuestionBank | None:
         async with self.session_factory() as session:
@@ -106,6 +118,8 @@ class QuestionBankRepository:
                 "render_checksum": render_checksum,
                 "explanation_asset_key": explanation_asset_key,
                 "explanation_asset_url": explanation_asset_url,
+                "explanation_asset_keys_by_bot": explanation_asset_keys_by_bot,
+                "explanation_asset_urls_by_bot": explanation_asset_urls_by_bot,
                 "variant_count": variant_count,
             }
             self._apply_updates(
@@ -134,7 +148,9 @@ class QuestionBankRepository:
 
     async def _get_question_by_key(self, session, question_key: str) -> QuestionBank | None:
         result = await session.execute(
-            select(QuestionBank).where(QuestionBank.question_key == question_key)
+            select(QuestionBank)
+            .options(selectinload(QuestionBank.asset_variants))
+            .where(QuestionBank.question_key == question_key)
         )
         return result.scalar_one_or_none()
 

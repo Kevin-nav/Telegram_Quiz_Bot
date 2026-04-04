@@ -3,6 +3,15 @@ from functools import lru_cache
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.bot.runtime_config import (
+    ADARKWA_BOT_ID,
+    DEFAULT_BOT_THEMES,
+    DEFAULT_PROFILE_SETUP_OVERRIDES,
+    TANJAH_BOT_ID,
+    BotRuntimeConfig,
+    normalize_webhook_path,
+    parse_allowed_course_codes,
+)
 from src.core.security import (
     DEFAULT_WEBHOOK_SECRET,
     build_async_database_config,
@@ -25,6 +34,8 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="development", alias="APP_ENV")
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    tanjah_bot_token: str | None = Field(default=None, alias="TANJAH_BOT_TOKEN")
+    adarkwa_bot_token: str | None = Field(default=None, alias="ADARKWA_BOT_TOKEN")
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     arq_queue_name: str = Field(
@@ -33,6 +44,30 @@ class Settings(BaseSettings):
     )
     webhook_url: str | None = Field(default=None, alias="WEBHOOK_URL")
     webhook_secret: str | None = Field(default=None, alias="WEBHOOK_SECRET")
+    tanjah_webhook_secret: str | None = Field(
+        default=None,
+        alias="TANJAH_WEBHOOK_SECRET",
+    )
+    tanjah_webhook_path: str = Field(
+        default="/webhook/tanjah",
+        alias="TANJAH_WEBHOOK_PATH",
+    )
+    tanjah_allowed_course_codes: str = Field(
+        default="",
+        alias="TANJAH_ALLOWED_COURSE_CODES",
+    )
+    adarkwa_webhook_secret: str | None = Field(
+        default=None,
+        alias="ADARKWA_WEBHOOK_SECRET",
+    )
+    adarkwa_webhook_path: str = Field(
+        default="/webhook/adarkwa",
+        alias="ADARKWA_WEBHOOK_PATH",
+    )
+    adarkwa_allowed_course_codes: str = Field(
+        default="",
+        alias="ADARKWA_ALLOWED_COURSE_CODES",
+    )
     sentry_dsn: str | None = Field(default=None, alias="SENTRY_DSN")
     admin_allowed_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000",
@@ -70,16 +105,19 @@ class Settings(BaseSettings):
         normalize_async_database_url(self.database_url)
 
         if is_non_local_environment(self.app_env):
-            if not self.telegram_bot_token:
-                raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set.")
-            if has_placeholder_token(self.telegram_bot_token):
-                raise ValueError(
-                    "TELEGRAM_BOT_TOKEN appears to be a placeholder value."
-                )
-            if has_unsafe_secret(self.webhook_secret):
-                raise ValueError(
-                    "WEBHOOK_SECRET must be set to a strong non-default value."
-                )
+            for bot_id, bot_config in self.bot_configs.items():
+                if not bot_config.telegram_bot_token:
+                    raise ValueError(
+                        f"{bot_id.upper()}_BOT_TOKEN environment variable not set."
+                    )
+                if has_placeholder_token(bot_config.telegram_bot_token):
+                    raise ValueError(
+                        f"{bot_id.upper()}_BOT_TOKEN appears to be a placeholder value."
+                    )
+                if has_unsafe_secret(bot_config.webhook_secret):
+                    raise ValueError(
+                        f"{bot_id.upper()}_WEBHOOK_SECRET must be set to a strong non-default value."
+                    )
             if self.webhook_url and not is_secure_webhook_url(self.webhook_url):
                 raise ValueError(
                     "WEBHOOK_URL must use https in non-local environments."
@@ -108,6 +146,59 @@ class Settings(BaseSettings):
             for origin in self.admin_allowed_origins.split(",")
             if origin.strip()
         ]
+
+    @property
+    def bot_configs(self) -> dict[str, BotRuntimeConfig]:
+        configs = {
+            TANJAH_BOT_ID: BotRuntimeConfig(
+                bot_id=TANJAH_BOT_ID,
+                telegram_bot_token=self.tanjah_bot_token or self.telegram_bot_token,
+                webhook_secret=self.tanjah_webhook_secret or self.webhook_secret,
+                webhook_path=normalize_webhook_path(
+                    self.tanjah_webhook_path,
+                    fallback_bot_id=TANJAH_BOT_ID,
+                ),
+                allowed_course_codes=parse_allowed_course_codes(
+                    self.tanjah_allowed_course_codes
+                ),
+                theme=DEFAULT_BOT_THEMES[TANJAH_BOT_ID],
+                **DEFAULT_PROFILE_SETUP_OVERRIDES[TANJAH_BOT_ID],
+            ),
+        }
+
+        if self._adarkwa_configured:
+            configs[ADARKWA_BOT_ID] = BotRuntimeConfig(
+                bot_id=ADARKWA_BOT_ID,
+                telegram_bot_token=self.adarkwa_bot_token,
+                webhook_secret=self.adarkwa_webhook_secret or self.webhook_secret,
+                webhook_path=normalize_webhook_path(
+                    self.adarkwa_webhook_path,
+                    fallback_bot_id=ADARKWA_BOT_ID,
+                ),
+                allowed_course_codes=parse_allowed_course_codes(
+                    self.adarkwa_allowed_course_codes
+                ),
+                theme=DEFAULT_BOT_THEMES[ADARKWA_BOT_ID],
+                **DEFAULT_PROFILE_SETUP_OVERRIDES[ADARKWA_BOT_ID],
+            )
+
+        return configs
+
+    @property
+    def default_bot_config(self) -> BotRuntimeConfig:
+        return self.bot_configs[TANJAH_BOT_ID]
+
+    @property
+    def _adarkwa_configured(self) -> bool:
+        return any(
+            [
+                self.adarkwa_bot_token,
+                self.adarkwa_webhook_secret,
+                self.adarkwa_allowed_course_codes.strip(),
+                self.adarkwa_webhook_path
+                and self.adarkwa_webhook_path.strip() != "/webhook/adarkwa",
+            ]
+        )
 
 
 @lru_cache(maxsize=1)

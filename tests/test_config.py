@@ -92,3 +92,33 @@ def test_settings_do_not_expose_adaptive_rollout_flags(monkeypatch):
     assert not hasattr(settings, "adaptive_review_jobs_enabled")
     assert not hasattr(settings, "adaptive_snapshot_cache_enabled")
     assert not hasattr(settings, "adaptive_rollout_cohort")
+
+
+def test_bot_configs_support_tanjah_defaults_and_adarkwa_overrides(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:tanjah-token")
+    monkeypatch.setenv("WEBHOOK_SECRET", "tanjah-webhook-secret")
+    monkeypatch.setenv("ADARKWA_BOT_TOKEN", "654321:adarkwa-token")
+    monkeypatch.setenv("ADARKWA_WEBHOOK_SECRET", "adarkwa-webhook-secret")
+    monkeypatch.setenv(
+        "ADARKWA_ALLOWED_COURSE_CODES",
+        "linear-algebra, general-psychology",
+    )
+
+    settings = Settings()
+
+    assert set(settings.bot_configs) == {"tanjah", "adarkwa"}
+    assert settings.bot_configs["tanjah"].telegram_bot_token == "123456:tanjah-token"
+    assert settings.bot_configs["tanjah"].webhook_secret == "tanjah-webhook-secret"
+    assert settings.bot_configs["tanjah"].webhook_path == "/webhook/tanjah"
+    assert settings.bot_configs["tanjah"].allowed_course_codes == ()
+    assert settings.bot_configs["tanjah"].theme.brand_name == "Tanjah"
+    assert settings.bot_configs["adarkwa"].telegram_bot_token == "654321:adarkwa-token"
+    assert settings.bot_configs["adarkwa"].webhook_secret == "adarkwa-webhook-secret"
+    assert settings.bot_configs["adarkwa"].webhook_path == "/webhook/adarkwa"
+    assert settings.bot_configs["adarkwa"].allowed_course_codes == (
+        "linear-algebra",
+        "general-psychology",
+    )
+    assert settings.bot_configs["adarkwa"].theme.brand_name == "Adarkwa"
