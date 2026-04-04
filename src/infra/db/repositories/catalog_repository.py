@@ -117,6 +117,7 @@ class CatalogRepository:
         program_code: str | None = None,
         level_code: str | None = None,
         semester_code: str | None = None,
+        course_code: str | None = None,
     ) -> list[ProgramCourseOffering]:
         async with self.session_factory() as session:
             stmt = select(ProgramCourseOffering).join(
@@ -131,6 +132,8 @@ class CatalogRepository:
                 stmt = stmt.where(ProgramCourseOffering.level_code == level_code)
             if semester_code is not None:
                 stmt = stmt.where(ProgramCourseOffering.semester_code == semester_code)
+            if course_code is not None:
+                stmt = stmt.where(ProgramCourseOffering.course_code == course_code)
 
             stmt = stmt.order_by(
                 ProgramCourseOffering.program_code.asc(),

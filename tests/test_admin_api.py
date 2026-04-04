@@ -45,11 +45,29 @@ class FakeAuthService:
 
 
 class FakePermissionService:
-    def __init__(self, permissions):
+    def __init__(self, permissions, catalog_access=None):
         self.permissions = permissions
+        self.catalog_access = catalog_access or {}
 
     async def user_has_permission(self, staff_user_id: int, permission_code: str) -> bool:
         return permission_code in self.permissions.get(staff_user_id, set())
+
+    async def user_can_access_bot_catalog_scope(
+        self,
+        staff_user_id: int,
+        bot_id: str | None,
+        *,
+        program_code: str | None = None,
+        level_code: str | None = None,
+        course_code: str | None = None,
+    ) -> bool:
+        _ = (program_code, level_code)
+        if bot_id is None:
+            return True
+        allowed_courses = self.catalog_access.get((staff_user_id, bot_id))
+        if allowed_courses is None:
+            return True
+        return course_code in allowed_courses
 
 
 class FakeCatalogService:
@@ -795,6 +813,92 @@ async def test_admin_questions_rejects_missing_permission(async_client, monkeypa
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_questions_list_filters_by_active_bot_catalog_scope(
+    async_client,
+    monkeypatch,
+):
+    import src.api.admin_auth as admin_auth
+    import src.api.admin_questions as admin_questions
+
+    fake_question_repo = FakeQuestionRepo(
+        questions=[
+            SimpleNamespace(
+                question_key="q-adarkwa",
+                course_id="calculus",
+                course_slug="calculus",
+                question_text="Allowed",
+                correct_option_text="A",
+                short_explanation="Explanation",
+                status="ready",
+                scaled_score=1.5,
+                band=1,
+            ),
+            SimpleNamespace(
+                question_key="q-tanjah",
+                course_id="economics",
+                course_slug="economics",
+                question_text="Blocked",
+                correct_option_text="B",
+                short_explanation="Explanation",
+                status="ready",
+                scaled_score=1.5,
+                band=1,
+            ),
+        ]
+    )
+    question_service = AdminQuestionService(
+        question_repository=fake_question_repo,
+        audit_log_repository=FakeAuditRepo(),
+    )
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-102": SimpleNamespace(
+                    staff_user_id=102,
+                    email="editor@example.com",
+                    display_name="Editor User",
+                    active_bot_id="adarkwa",
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService(
+            {102: {"questions.view"}},
+            catalog_access={(102, "adarkwa"): {"calculus"}},
+        ),
+    )
+    monkeypatch.setattr(
+        admin_questions,
+        "get_permission_service",
+        lambda request: FakePermissionService(
+            {102: {"questions.view"}},
+            catalog_access={(102, "adarkwa"): {"calculus"}},
+        ),
+    )
+    monkeypatch.setattr(
+        admin_questions,
+        "get_admin_question_service",
+        lambda request: question_service,
+    )
+
+    response = await async_client.get(
+        "/admin/questions",
+        cookies={"admin_session": "session-102"},
+    )
+
+    assert response.status_code == 200
+    assert [item["question_key"] for item in response.json()["items"]] == [
+        "q-adarkwa"
+    ]
 
 
 @pytest.mark.asyncio
