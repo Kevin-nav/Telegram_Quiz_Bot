@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy import delete
 
@@ -37,12 +39,18 @@ class StaffUserRepository:
         email: str,
         display_name: str | None = None,
         is_active: bool = True,
+        password_hash: str | None = None,
+        must_change_password: bool = True,
+        last_selected_bot_id: str | None = None,
     ) -> StaffUser:
         async with self.session_factory() as session:
             staff_user = StaffUser(
                 email=email,
                 display_name=display_name,
                 is_active=is_active,
+                password_hash=password_hash,
+                must_change_password=must_change_password,
+                last_selected_bot_id=last_selected_bot_id,
             )
             session.add(staff_user)
             await session.commit()
@@ -62,10 +70,56 @@ class StaffUserRepository:
             for field in ("email", "display_name", "is_active"):
                 if field in updates and updates[field] is not None:
                     setattr(staff_user, field, updates[field])
+            for field in (
+                "password_hash",
+                "must_change_password",
+                "password_updated_at",
+                "last_login_at",
+                "last_selected_bot_id",
+            ):
+                if field in updates:
+                    setattr(staff_user, field, updates[field])
 
             await session.commit()
             await session.refresh(staff_user)
             return staff_user
+
+    async def update_password(
+        self,
+        staff_user_id: int,
+        *,
+        password_hash: str,
+        must_change_password: bool,
+        password_updated_at: datetime,
+    ) -> StaffUser | None:
+        return await self.update_staff_user(
+            staff_user_id,
+            password_hash=password_hash,
+            must_change_password=must_change_password,
+            password_updated_at=password_updated_at,
+        )
+
+    async def update_last_login(
+        self,
+        staff_user_id: int,
+        *,
+        last_login_at: datetime,
+    ) -> StaffUser | None:
+        return await self.update_staff_user(
+            staff_user_id,
+            last_login_at=last_login_at,
+        )
+
+    async def set_last_selected_bot(
+        self,
+        staff_user_id: int,
+        *,
+        bot_id: str,
+    ) -> StaffUser | None:
+        return await self.update_staff_user(
+            staff_user_id,
+            last_selected_bot_id=bot_id,
+        )
 
     async def list_roles_for_user(self, staff_user_id: int) -> list[StaffRole]:
         async with self.session_factory() as session:
