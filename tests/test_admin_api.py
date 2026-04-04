@@ -10,11 +10,38 @@ from src.domains.admin.staff_service import AdminStaffService
 
 
 class FakeAuthService:
-    def __init__(self, principals):
-        self.principals = principals
+    def __init__(
+        self,
+        principals=None,
+        principals_by_session_token=None,
+        login_result=None,
+        set_password_result=None,
+        select_bot_result=None,
+    ):
+        self.principals = principals or {}
+        self.principals_by_session_token = principals_by_session_token or {}
+        self.login_result = login_result
+        self.set_password_result = set_password_result
+        self.select_bot_result = select_bot_result
+        self.logged_out_tokens = []
 
     async def get_principal(self, staff_user_id: int):
         return self.principals.get(staff_user_id)
+
+    async def get_principal_for_session_token(self, session_token: str):
+        return self.principals_by_session_token.get(session_token)
+
+    async def login(self, *_args, **_kwargs):
+        return self.login_result
+
+    async def logout(self, session_token: str):
+        self.logged_out_tokens.append(session_token)
+
+    async def set_password(self, *_args, **_kwargs):
+        return self.set_password_result
+
+    async def set_active_bot(self, *_args, **_kwargs):
+        return self.select_bot_result
 
 
 class FakePermissionService:
@@ -245,19 +272,24 @@ async def test_admin_auth_me_returns_current_principal(async_client, monkeypatch
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
+                    role_codes=["super_admin"],
+                    permission_codes=["staff.view"],
+                    bot_access=["adarkwa", "tanjah"],
+                    active_bot_id="adarkwa",
+                    must_change_password=False,
                 )
-            }
+            },
         ),
     )
 
     response = await async_client.get(
         "/admin/auth/me",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
     )
 
     assert response.status_code == 200
@@ -265,7 +297,125 @@ async def test_admin_auth_me_returns_current_principal(async_client, monkeypatch
         "staff_user_id": 101,
         "email": "admin@example.com",
         "display_name": "Admin User",
+        "role_codes": ["super_admin"],
+        "permission_codes": ["staff.view"],
+        "bot_access": ["adarkwa", "tanjah"],
+        "active_bot_id": "adarkwa",
+        "must_change_password": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_admin_auth_login_sets_session_cookie(async_client, monkeypatch):
+    import src.api.admin_auth as admin_auth
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            login_result=(
+                SimpleNamespace(
+                    staff_user_id=101,
+                    email="admin@example.com",
+                    display_name="Admin User",
+                    role_codes=["super_admin"],
+                    permission_codes=["staff.view"],
+                    bot_access=["adarkwa", "tanjah"],
+                    active_bot_id="adarkwa",
+                    must_change_password=True,
+                ),
+                "issued-session-token",
+            )
+        ),
+    )
+
+    response = await async_client.post(
+        "/admin/auth/login",
+        json={"email": "admin@example.com", "password": "temp-password"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["must_change_password"] is True
+    assert response.cookies.get("admin_session") == "issued-session-token"
+
+
+@pytest.mark.asyncio
+async def test_admin_auth_set_password_uses_session_cookie(async_client, monkeypatch):
+    import src.api.admin_auth as admin_auth
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
+                    staff_user_id=101,
+                    email="admin@example.com",
+                    display_name="Admin User",
+                    role_codes=["super_admin"],
+                    permission_codes=["staff.view"],
+                    bot_access=["adarkwa", "tanjah"],
+                    active_bot_id="adarkwa",
+                    must_change_password=True,
+                )
+            },
+            set_password_result=SimpleNamespace(
+                staff_user_id=101,
+                email="admin@example.com",
+                display_name="Admin User",
+                role_codes=["super_admin"],
+                permission_codes=["staff.view"],
+                bot_access=["adarkwa", "tanjah"],
+                active_bot_id="adarkwa",
+                must_change_password=False,
+            ),
+        ),
+    )
+
+    response = await async_client.post(
+        "/admin/auth/set-password",
+        cookies={"admin_session": "session-101"},
+        json={
+            "current_password": "temp-password",
+            "new_password": "new-password-123",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["must_change_password"] is False
+
+
+@pytest.mark.asyncio
+async def test_admin_auth_logout_clears_session_cookie(async_client, monkeypatch):
+    import src.api.admin_auth as admin_auth
+
+    fake_auth_service = FakeAuthService(
+        principals_by_session_token={
+            "session-101": SimpleNamespace(
+                staff_user_id=101,
+                email="admin@example.com",
+                display_name="Admin User",
+                role_codes=["super_admin"],
+                permission_codes=["staff.view"],
+                bot_access=["adarkwa", "tanjah"],
+                active_bot_id="adarkwa",
+                must_change_password=False,
+            )
+        }
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: fake_auth_service,
+    )
+
+    response = await async_client.post(
+        "/admin/auth/logout",
+        cookies={"admin_session": "session-101"},
+    )
+
+    assert response.status_code == 204
+    assert fake_auth_service.logged_out_tokens == ["session-101"]
 
 
 @pytest.mark.asyncio
@@ -296,13 +446,13 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -314,7 +464,7 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
 
     list_response = await async_client.get(
         "/admin/staff",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
     )
     assert list_response.status_code == 200
     assert list_response.json()["count"] == 1
@@ -322,7 +472,7 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
 
     create_response = await async_client.post(
         "/admin/staff",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
         json={
             "email": "new-admin@example.com",
             "display_name": "New Admin",
@@ -336,7 +486,7 @@ async def test_admin_staff_list_and_update_permissions(async_client, monkeypatch
 
     update_response = await async_client.patch(
         "/admin/staff/202",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
         json={
             "permission_codes": ["catalog.view", "audit.view"],
             "role_codes": ["super_admin"],
@@ -367,13 +517,13 @@ async def test_admin_catalog_write_invalidates_cache(async_client, monkeypatch):
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -389,7 +539,7 @@ async def test_admin_catalog_write_invalidates_cache(async_client, monkeypatch):
 
     response = await async_client.post(
         "/admin/catalog/offerings",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
         json={
             "program_code": "mechanical-engineering",
             "level_code": "100",
@@ -435,13 +585,13 @@ async def test_admin_questions_update_creates_audit_log(async_client, monkeypatc
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="editor@example.com",
                     display_name="Editor User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -457,7 +607,7 @@ async def test_admin_questions_update_creates_audit_log(async_client, monkeypatc
 
     response = await async_client.patch(
         "/admin/questions/q-1",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
         json={
             "question_text": "Updated text",
             "correct_option_text": "B",
@@ -497,13 +647,13 @@ async def test_admin_audit_listing_returns_entries(async_client, monkeypatch):
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -519,7 +669,7 @@ async def test_admin_audit_listing_returns_entries(async_client, monkeypatch):
 
     response = await async_client.get(
         "/admin/audit",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
     )
 
     assert response.status_code == 200
@@ -536,13 +686,13 @@ async def test_admin_catalog_allows_view_permission(async_client, monkeypatch):
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -558,7 +708,7 @@ async def test_admin_catalog_allows_view_permission(async_client, monkeypatch):
 
     response = await async_client.get(
         "/admin/catalog",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
     )
 
     assert response.status_code == 200
@@ -574,13 +724,13 @@ async def test_admin_questions_rejects_missing_permission(async_client, monkeypa
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                102: SimpleNamespace(
+            principals_by_session_token={
+                "session-102": SimpleNamespace(
                     staff_user_id=102,
                     email="editor@example.com",
                     display_name="Editor User",
                 )
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -591,7 +741,7 @@ async def test_admin_questions_rejects_missing_permission(async_client, monkeypa
 
     response = await async_client.get(
         "/admin/questions",
-        headers={"X-Admin-User-Id": "102"},
+        cookies={"admin_session": "session-102"},
     )
 
     assert response.status_code == 403
@@ -624,18 +774,18 @@ async def test_admin_staff_lookup_requires_permission(async_client, monkeypatch)
         admin_auth,
         "get_auth_service",
         lambda request: FakeAuthService(
-            {
-                101: SimpleNamespace(
+            principals_by_session_token={
+                "session-101": SimpleNamespace(
                     staff_user_id=101,
                     email="admin@example.com",
                     display_name="Admin User",
                 ),
-                202: SimpleNamespace(
+                "session-202": SimpleNamespace(
                     staff_user_id=202,
                     email="staff@example.com",
                     display_name="Staff User",
                 ),
-            }
+            },
         ),
     )
     monkeypatch.setattr(
@@ -647,7 +797,7 @@ async def test_admin_staff_lookup_requires_permission(async_client, monkeypatch)
 
     response = await async_client.get(
         "/admin/staff/202",
-        headers={"X-Admin-User-Id": "101"},
+        cookies={"admin_session": "session-101"},
     )
 
     assert response.status_code == 200

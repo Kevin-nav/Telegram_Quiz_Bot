@@ -153,6 +153,31 @@ class AuthService:
             revoked_at=revoked_at,
         )
 
+    async def set_password(
+        self,
+        staff_user_id: int,
+        *,
+        current_password: str,
+        new_password: str,
+        now: datetime | None = None,
+    ) -> AdminPrincipal | None:
+        staff_user = await self.get_staff_user(staff_user_id)
+        if staff_user is None or not staff_user.is_active:
+            return None
+        if not self.password_service.verify_password(
+            current_password,
+            getattr(staff_user, "password_hash", None),
+        ):
+            return None
+
+        await self.staff_user_repository.update_password(
+            staff_user_id,
+            password_hash=self.password_service.hash_password(new_password),
+            must_change_password=False,
+            password_updated_at=now or datetime.now(UTC),
+        )
+        return await self.get_principal(staff_user_id)
+
     async def set_active_bot(self, staff_user_id: int, bot_id: str) -> AdminPrincipal | None:
         principal = await self.get_principal(staff_user_id)
         if principal is None or bot_id not in (principal.bot_access or []):
