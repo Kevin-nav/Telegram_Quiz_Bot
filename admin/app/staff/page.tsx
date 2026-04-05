@@ -231,16 +231,14 @@ export default function StaffPage() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreHorizontal className="size-4" />
-                              <span className="sr-only">Actions</span>
-                            </Button>
-                          }
-                        />
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={<Button variant="ghost" size="icon" className="size-8" />}
+                          >
+                            <MoreHorizontal className="size-4" />
+                            <span className="sr-only">Actions</span>
+                          </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => handleEdit(user)}>
                             Edit details

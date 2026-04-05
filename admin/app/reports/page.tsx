@@ -19,11 +19,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import { cn } from "@/lib/utils";
 import {
-  fetchAdminPrincipal,
   listReports,
   updateReportStatus,
   type ReportListItem,
 } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 const statusConfig = {
   open: { label: "Open", icon: Clock, color: "text-amber-600 bg-amber-50 border-amber-200" },
@@ -33,14 +34,12 @@ const statusConfig = {
 
 export default function ReportsPage() {
   const queryClient = useQueryClient();
-  const principalQuery = useQuery({
-    queryKey: ["admin-principal"],
-    queryFn: fetchAdminPrincipal,
-    retry: false,
-  });
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const reportsQuery = useQuery({
-    queryKey: ["reports"],
+    queryKey: adminQueryKeys.reports(activeBotId),
     queryFn: () => listReports(),
+    enabled: Boolean(activeBotId),
     retry: false,
   });
 
@@ -78,7 +77,7 @@ export default function ReportsPage() {
 
   const openCount = reportsQuery.data?.open_count ?? reports.filter((r) => r.status === "open").length;
 
-  if (reportsQuery.isLoading && !reportsQuery.data) {
+  if ((principalQuery.isLoading || reportsQuery.isLoading) && !reportsQuery.data) {
     return (
       <AdminLoadingState
         title="Reports"
@@ -88,7 +87,7 @@ export default function ReportsPage() {
     );
   }
 
-  if (reportsQuery.isError && !reportsQuery.data) {
+  if ((principalQuery.isError || reportsQuery.isError) && !reportsQuery.data) {
     return (
       <AdminErrorState
         title="Reports"

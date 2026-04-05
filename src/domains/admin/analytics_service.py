@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 
+from src.cache import redis_client
 from src.infra.db.models.catalog_course import CatalogCourse
 from src.infra.db.models.catalog_faculty import CatalogFaculty
 from src.infra.db.models.catalog_program import CatalogProgram
@@ -14,12 +15,22 @@ from src.infra.db.models.student_course_state import StudentCourseState
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
 from src.infra.db.models.user import User
+from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.db.session import AsyncSessionLocal
 
 
+ANALYTICS_SUMMARY_CACHE_TTL_SECONDS = 60
+ANALYTICS_STUDENT_CACHE_TTL_SECONDS = 90
+
+
 class AdminAnalyticsService:
-    def __init__(self, session_factory=AsyncSessionLocal):
+    def __init__(
+        self,
+        session_factory=AsyncSessionLocal,
+        cache_store: AdminCacheStore | None = None,
+    ):
         self.session_factory = session_factory
+        self.cache_store = cache_store or AdminCacheStore(redis_client)
 
     async def get_summary(
         self,
@@ -27,6 +38,14 @@ class AdminAnalyticsService:
         active_bot_id: str | None = None,
         course_codes: set[str] | None = None,
     ) -> dict:
+        cached = await self.cache_store.get_json(
+            "analytics-summary",
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+        )
+        if cached is not None:
+            return cached
+
         attempts = await self._list_attempts(
             active_bot_id=active_bot_id,
             course_codes=course_codes,
@@ -37,11 +56,19 @@ class AdminAnalyticsService:
             course_names,
             active_bot_id=active_bot_id,
         )
-        return {
+        payload = {
             "kpis": self._build_kpis(attempts, leaderboard),
             "daily_usage": self._build_daily_usage(attempts, days=7),
             "leaderboard": leaderboard,
         }
+        await self.cache_store.set_json(
+            "analytics-summary",
+            payload,
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            ttl_seconds=ANALYTICS_SUMMARY_CACHE_TTL_SECONDS,
+        )
+        return payload
 
     async def get_student_detail(
         self,
@@ -50,6 +77,15 @@ class AdminAnalyticsService:
         active_bot_id: str | None = None,
         course_codes: set[str] | None = None,
     ) -> dict | None:
+        cached = await self.cache_store.get_json(
+            "analytics-student",
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            extra_parts=(user_id,),
+        )
+        if cached is not None:
+            return cached
+
         user = await self._get_user(user_id)
         attempts = await self._list_attempts(
             user_id=user_id,
@@ -178,7 +214,7 @@ class AdminAnalyticsService:
             course_codes=course_codes,
         )
 
-        return {
+        payload = {
             "profile": profile,
             "courses": courses,
             "srs": await self._build_srs_distribution(
@@ -196,6 +232,15 @@ class AdminAnalyticsService:
             ),
             "leaderboard_entry": leaderboard_entry,
         }
+        await self.cache_store.set_json(
+            "analytics-student",
+            payload,
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            extra_parts=(user_id,),
+            ttl_seconds=ANALYTICS_STUDENT_CACHE_TTL_SECONDS,
+        )
+        return payload
 
     async def _build_leaderboard(
         self,

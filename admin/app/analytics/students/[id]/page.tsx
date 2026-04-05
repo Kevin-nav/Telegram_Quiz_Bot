@@ -56,6 +56,8 @@ import {
   fetchStudentAnalytics,
   type StudentDetailResponse,
 } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 function phaseBadge(phase: string) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -124,11 +126,13 @@ export default function StudentDetailPage() {
   const router = useRouter();
   const userId = Number(params.id);
   const hasValidUserId = Number.isFinite(userId);
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
 
   const studentQuery = useQuery<StudentDetailResponse>({
-    queryKey: ["analytics", "students", userId],
+    queryKey: adminQueryKeys.studentAnalytics(activeBotId, userId),
     queryFn: () => fetchStudentAnalytics(userId),
-    enabled: hasValidUserId,
+    enabled: hasValidUserId && Boolean(activeBotId),
     retry: false,
   });
 
@@ -143,7 +147,7 @@ export default function StudentDetailPage() {
     return Math.round((profile.total_correct / profile.total_questions_answered) * 1000) / 10;
   }, [data?.profile]);
 
-  if (studentQuery.isLoading && !data) {
+  if ((principalQuery.isLoading || studentQuery.isLoading) && !data) {
     return (
       <AdminLoadingState
         title="Student analytics"
@@ -168,7 +172,7 @@ export default function StudentDetailPage() {
     );
   }
 
-  if (studentQuery.isError) {
+  if (principalQuery.isError || studentQuery.isError) {
     return (
       <AdminErrorState
         title="Student analytics"

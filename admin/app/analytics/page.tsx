@@ -40,6 +40,8 @@ import {
 } from "@/components/ui/table";
 import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import { fetchAnalyticsSummary, type AnalyticsSummaryResponse } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 const trendIcons = {
   up: TrendingUp,
@@ -60,13 +62,16 @@ function phaseDot(phase: string) {
 
 export default function AnalyticsPage() {
   const router = useRouter();
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
-    queryKey: ["analytics"],
+    queryKey: adminQueryKeys.analytics(activeBotId),
     queryFn: fetchAnalyticsSummary,
+    enabled: Boolean(activeBotId),
     retry: false,
   });
 
-  if (analyticsQuery.isLoading && !analyticsQuery.data) {
+  if ((principalQuery.isLoading || analyticsQuery.isLoading) && !analyticsQuery.data) {
     return (
       <AdminLoadingState
         title="Analytics"
@@ -76,7 +81,7 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (analyticsQuery.isError || !analyticsQuery.data) {
+  if (principalQuery.isError || analyticsQuery.isError || !analyticsQuery.data) {
     return (
       <AdminErrorState
         title="Analytics"

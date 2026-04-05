@@ -27,6 +27,8 @@ import {
   type QuestionRecord,
   type AdminStaffUser,
 } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 const trendIcons = {
   up: TrendingUp,
@@ -37,24 +39,29 @@ const trendIcons = {
 const kpiIcons = [Users, MessageSquare, Target, Flame];
 
 export default function DashboardPage() {
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
-    queryKey: ["analytics"],
+    queryKey: adminQueryKeys.analytics(activeBotId),
     queryFn: fetchAnalyticsSummary,
+    enabled: Boolean(activeBotId),
     retry: false,
   });
   const staffQuery = useQuery<AdminStaffUser[]>({
-    queryKey: ["staff-users"],
+    queryKey: adminQueryKeys.staffUsers(),
     queryFn: listStaffUsers,
     retry: false,
   });
   const questionsQuery = useQuery<QuestionRecord[]>({
-    queryKey: ["questions"],
+    queryKey: adminQueryKeys.questions(activeBotId),
     queryFn: listQuestions,
+    enabled: Boolean(activeBotId),
     retry: false,
   });
   const reportsQuery = useQuery({
-    queryKey: ["reports"],
+    queryKey: adminQueryKeys.reports(activeBotId),
     queryFn: () => listReports(),
+    enabled: Boolean(activeBotId),
     retry: false,
   });
 

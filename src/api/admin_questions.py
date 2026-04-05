@@ -76,6 +76,7 @@ async def update_question(
         question_key,
         payload,
         actor_staff_user_id=principal.staff_user_id,
+        active_bot_id=bot_id,
     )
     if updated is None:
         raise HTTPException(

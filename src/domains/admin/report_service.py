@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from src.cache import redis_client
 from src.infra.db.models.catalog_course import CatalogCourse
 from src.infra.db.models.question_bank import QuestionBank
 from src.infra.db.models.question_report import QuestionReport
 from src.infra.db.models.telegram_identity import TelegramIdentity
 from src.infra.db.repositories.audit_log_repository import AuditLogRepository
 from src.infra.db.session import AsyncSessionLocal
+from src.infra.redis.admin_cache_store import AdminCacheStore
 
 
 VALID_REPORT_STATUSES = {"open", "resolved", "dismissed"}
+REPORT_LIST_CACHE_TTL_SECONDS = 45
+REPORT_DETAIL_CACHE_TTL_SECONDS = 45
 
 
 class AdminReportService:
@@ -19,9 +23,11 @@ class AdminReportService:
         *,
         session_factory=AsyncSessionLocal,
         audit_log_repository: AuditLogRepository | None = None,
+        cache_store: AdminCacheStore | None = None,
     ):
         self.session_factory = session_factory
         self.audit_log_repository = audit_log_repository or AuditLogRepository()
+        self.cache_store = cache_store or AdminCacheStore(redis_client)
 
     async def list_reports(
         self,
@@ -32,6 +38,15 @@ class AdminReportService:
         limit: int = 100,
         offset: int = 0,
     ) -> dict:
+        cached = await self.cache_store.get_json(
+            "reports-list",
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            extra_parts=(status, limit, offset),
+        )
+        if cached is not None:
+            return cached
+
         reports = await self._list_reports(
             active_bot_id=active_bot_id,
             course_codes=course_codes,
@@ -40,11 +55,20 @@ class AdminReportService:
         if status:
             reports = [report for report in reports if report.report_status == status]
         reports = reports[offset : offset + limit]
-        return {
+        payload = {
             "items": await self._serialize_reports(reports),
             "count": len(reports),
             "open_count": open_count,
         }
+        await self.cache_store.set_json(
+            "reports-list",
+            payload,
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            extra_parts=(status, limit, offset),
+            ttl_seconds=REPORT_LIST_CACHE_TTL_SECONDS,
+        )
+        return payload
 
     async def get_report(
         self,
@@ -53,6 +77,15 @@ class AdminReportService:
         active_bot_id: str | None = None,
         course_codes: set[str] | None = None,
     ) -> dict | None:
+        cached = await self.cache_store.get_json(
+            "reports-detail",
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            extra_parts=(report_id,),
+        )
+        if cached is not None:
+            return cached
+
         report = await self._get_report(
             report_id,
             active_bot_id=active_bot_id,
@@ -61,7 +94,17 @@ class AdminReportService:
         if report is None:
             return None
         payload = await self._serialize_reports([report])
-        return payload[0] if payload else None
+        result = payload[0] if payload else None
+        if result is not None:
+            await self.cache_store.set_json(
+                "reports-detail",
+                result,
+                bot_id=active_bot_id,
+                course_codes=course_codes,
+                extra_parts=(report_id,),
+                ttl_seconds=REPORT_DETAIL_CACHE_TTL_SECONDS,
+            )
+        return result
 
     async def update_report_status(
         self,
@@ -102,6 +145,8 @@ class AdminReportService:
             before_data=before_payload,
             after_data=after_payload,
         )
+        await self.cache_store.bump_version("reports-list", bot_id=active_bot_id)
+        await self.cache_store.bump_version("reports-detail", bot_id=active_bot_id)
         return after_payload
 
     async def _list_reports(

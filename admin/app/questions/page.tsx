@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/table";
 import { QuestionEditorDialog } from "@/components/questions/question-editor-dialog";
 import { listQuestions, type QuestionRecord } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 export default function QuestionsPage() {
   const [search, setSearch] = useState("");
@@ -33,10 +35,13 @@ export default function QuestionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedQuestion, setSelectedQuestion] = useState<QuestionRecord | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
 
   const questionsQuery = useQuery({
-    queryKey: ["questions"],
+    queryKey: adminQueryKeys.questions(activeBotId),
     queryFn: listQuestions,
+    enabled: Boolean(activeBotId),
   });
 
   const questions = questionsQuery.data ?? [];

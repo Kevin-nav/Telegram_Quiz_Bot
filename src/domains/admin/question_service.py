@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from src.cache import redis_client
 from src.infra.db.repositories.audit_log_repository import AuditLogRepository
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
+from src.infra.redis.admin_cache_store import AdminCacheStore
+
+
+QUESTION_LIST_CACHE_TTL_SECONDS = 120
 
 
 class AdminQuestionService:
@@ -9,9 +14,11 @@ class AdminQuestionService:
         self,
         question_repository: QuestionBankRepository | None = None,
         audit_log_repository: AuditLogRepository | None = None,
+        cache_store: AdminCacheStore | None = None,
     ):
         self.question_repository = question_repository or QuestionBankRepository()
         self.audit_log_repository = audit_log_repository or AuditLogRepository()
+        self.cache_store = cache_store or AdminCacheStore(redis_client)
 
     async def list_questions(
         self,
@@ -21,13 +28,29 @@ class AdminQuestionService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict]:
+        cached = await self.cache_store.get_json(
+            "questions-list",
+            bot_id=None,
+            extra_parts=(course_id, status, limit, offset),
+        )
+        if cached is not None:
+            return cached
+
         questions = await self.question_repository.list_questions(
             course_id=course_id,
             status=status,
             limit=limit,
             offset=offset,
         )
-        return [self._serialize_question(question) for question in questions]
+        payload = [self._serialize_question(question) for question in questions]
+        await self.cache_store.set_json(
+            "questions-list",
+            payload,
+            bot_id=None,
+            extra_parts=(course_id, status, limit, offset),
+            ttl_seconds=QUESTION_LIST_CACHE_TTL_SECONDS,
+        )
+        return payload
 
     async def update_question(
         self,
@@ -35,6 +58,7 @@ class AdminQuestionService:
         payload: dict,
         *,
         actor_staff_user_id: int | None = None,
+        active_bot_id: str | None = None,
     ) -> dict | None:
         before = await self.question_repository.get_question(question_key)
         if before is None:
@@ -69,6 +93,9 @@ class AdminQuestionService:
             before_data=before_payload,
             after_data=after_payload,
         )
+        await self.cache_store.bump_version("questions-list", bot_id=None)
+        await self.cache_store.bump_version("reports-list", bot_id=active_bot_id)
+        await self.cache_store.bump_version("reports-detail", bot_id=active_bot_id)
         return after_payload
 
     def _serialize_question(self, question) -> dict:

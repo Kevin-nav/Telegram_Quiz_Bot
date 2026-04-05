@@ -28,6 +28,8 @@ import {
   listStaffUsers,
   type CatalogNode,
 } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 const pages = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
@@ -41,22 +43,24 @@ const pages = [
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const staffQuery = useQuery({
-    queryKey: ["staff-users"],
+    queryKey: adminQueryKeys.staffUsers(),
     queryFn: listStaffUsers,
     enabled: open,
     retry: false,
   });
   const catalogTreeQuery = useQuery({
-    queryKey: ["catalog-tree"],
+    queryKey: adminQueryKeys.catalogTree(activeBotId),
     queryFn: fetchCatalogTree,
-    enabled: open,
+    enabled: open && Boolean(activeBotId),
     retry: false,
   });
   const questionsQuery = useQuery({
-    queryKey: ["questions"],
+    queryKey: adminQueryKeys.questions(activeBotId),
     queryFn: listQuestions,
-    enabled: open,
+    enabled: open && Boolean(activeBotId),
     retry: false,
   });
 

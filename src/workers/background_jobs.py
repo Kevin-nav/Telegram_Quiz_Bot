@@ -10,6 +10,7 @@ from src.domains.adaptive.review import (
 from src.domains.adaptive.service import AdaptiveLearningService
 from src.domains.adaptive.srs import advance_srs_box
 from src.analytics.internal_analytics import analytics
+from src.cache import redis_client
 from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
 from src.infra.db.repositories.question_report_repository import QuestionReportRepository
 from src.infra.db.repositories.adaptive_review_repository import AdaptiveReviewRepository
@@ -17,6 +18,7 @@ from src.infra.db.repositories.student_course_state_repository import (
     StudentCourseStateRepository,
 )
 from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
+from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.redis.idempotency import AdaptiveAttemptIdempotencyStore
 
 
@@ -27,6 +29,7 @@ adaptive_learning_service = AdaptiveLearningService()
 adaptive_review_repository = AdaptiveReviewRepository()
 student_course_state_repository = StudentCourseStateRepository()
 student_question_srs_repository = StudentQuestionSrsRepository()
+admin_cache_store = AdminCacheStore(redis_client)
 
 
 async def record_analytics_event(payload: dict) -> None:
@@ -201,6 +204,14 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
             metadata=payload,
             bot_id=payload.get("bot_id"),
         )
+        await admin_cache_store.bump_version(
+            "analytics-summary",
+            bot_id=payload.get("bot_id"),
+        )
+        await admin_cache_store.bump_version(
+            "analytics-student",
+            bot_id=payload.get("bot_id"),
+        )
     finally:
         if runtime is not None and lock_token is not None:
             await runtime.state_store.release_adaptive_update_lock(
@@ -296,6 +307,14 @@ async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
         metadata=payload,
         bot_id=payload.get("bot_id"),
     )
+    await admin_cache_store.bump_version(
+        "analytics-summary",
+        bot_id=payload.get("bot_id"),
+    )
+    await admin_cache_store.bump_version(
+        "analytics-student",
+        bot_id=payload.get("bot_id"),
+    )
 
 
 async def persist_question_report(payload: dict, runtime=None) -> None:
@@ -305,6 +324,18 @@ async def persist_question_report(payload: dict, runtime=None) -> None:
         user_id=payload["user_id"],
         event_type="question_report_persisted",
         metadata=payload,
+        bot_id=payload.get("bot_id"),
+    )
+    await admin_cache_store.bump_version(
+        "reports-list",
+        bot_id=payload.get("bot_id"),
+    )
+    await admin_cache_store.bump_version(
+        "reports-detail",
+        bot_id=payload.get("bot_id"),
+    )
+    await admin_cache_store.bump_version(
+        "analytics-student",
         bot_id=payload.get("bot_id"),
     )
 

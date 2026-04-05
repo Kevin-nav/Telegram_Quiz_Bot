@@ -48,6 +48,7 @@ import { FullscreenLoadingState } from "@/components/app-fallbacks";
 import { CommandPalette } from "@/components/command-palette";
 import { BotWorkspaceSwitcher } from "@/components/bot-workspace-switcher";
 import { fetchAdminPrincipal, logoutAdmin } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
 import { toast } from "sonner";
 
 const navItems = [
@@ -81,7 +82,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const principalQuery = useQuery({
-    queryKey: ["admin-principal"],
+    queryKey: adminQueryKeys.principal(),
     queryFn: fetchAdminPrincipal,
     retry: false,
   });
@@ -200,29 +201,30 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
           <SidebarMenu>
             <SidebarMenuItem>
               <DropdownMenu>
+                {/* Base UI trigger content belongs on DropdownMenuTrigger, not inside render. */}
                 <DropdownMenuTrigger
                   render={
                     <SidebarMenuButton
                       size="lg"
                       className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                    >
-                      <Avatar className="size-8 rounded-lg">
-                        <AvatarFallback className="rounded-lg text-xs">
-                          {getInitials(principal?.display_name ?? "Admin")}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="grid flex-1 text-left text-sm leading-tight">
-                        <span className="truncate font-semibold">
-                          {principal?.display_name ?? "Admin"}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {principal?.role_codes?.[0]?.replace("_", " ") ?? "staff"}
-                        </span>
-                      </div>
-                      <ChevronsUpDown className="ml-auto size-4" />
-                    </SidebarMenuButton>
+                    />
                   }
-                />
+                >
+                  <Avatar className="size-8 rounded-lg">
+                    <AvatarFallback className="rounded-lg text-xs">
+                      {getInitials(principal?.display_name ?? "Admin")}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">
+                      {principal?.display_name ?? "Admin"}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {principal?.role_codes?.[0]?.replace("_", " ") ?? "staff"}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </DropdownMenuTrigger>
                 <DropdownMenuContent
                   className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
                   side="bottom"

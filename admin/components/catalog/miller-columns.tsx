@@ -13,14 +13,19 @@ import {
   saveCatalogOffering,
   type CatalogNode,
 } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
+import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
 const LEVEL_LABELS = ["Faculty", "Program", "Level", "Semester", "Course"];
 
 export function MillerColumns() {
   const queryClient = useQueryClient();
+  const principalQuery = useAdminPrincipal();
+  const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const catalogQuery = useQuery({
-    queryKey: ["catalog-tree"],
+    queryKey: adminQueryKeys.catalogTree(activeBotId),
     queryFn: fetchCatalogTree,
+    enabled: Boolean(activeBotId),
   });
   const [catalog, setCatalog] = useState<CatalogNode[]>([]);
   const [selections, setSelections] = useState<string[]>([]);

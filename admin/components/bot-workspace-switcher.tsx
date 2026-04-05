@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { selectAdminBot, type AdminPrincipal } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
 import { toast } from "sonner";
 
 type BotWorkspaceSwitcherProps = {
@@ -49,9 +50,10 @@ export function BotWorkspaceSwitcher({ principal }: BotWorkspaceSwitcherProps) {
     setIsPending(true);
     void (async () => {
       try {
-        await selectAdminBot(botId);
-        await queryClient.invalidateQueries({ queryKey: ["admin-principal"] });
-        await queryClient.invalidateQueries({ queryKey: ["staff-users"] });
+        const updatedPrincipal = await selectAdminBot(botId);
+        queryClient.setQueryData(adminQueryKeys.principal(), updatedPrincipal);
+        await queryClient.invalidateQueries({ queryKey: adminQueryKeys.principal() });
+        await queryClient.invalidateQueries({ queryKey: adminQueryKeys.staffUsers() });
         await queryClient.invalidateQueries({ queryKey: ["catalog-tree"] });
         await queryClient.invalidateQueries({ queryKey: ["questions"] });
         await queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -68,15 +70,13 @@ export function BotWorkspaceSwitcher({ principal }: BotWorkspaceSwitcherProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={
-          <Button variant="outline" size="sm" className="gap-2">
-            {isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            <span className="hidden sm:inline">Workspace:</span>
-            <span className="font-medium">{activeLabel}</span>
-            <ChevronsUpDown className="size-3.5 opacity-60" />
-          </Button>
-        }
-      />
+        render={<Button variant="outline" size="sm" className="gap-2" />}
+      >
+        {isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+        <span className="hidden sm:inline">Workspace:</span>
+        <span className="font-medium">{activeLabel}</span>
+        <ChevronsUpDown className="size-3.5 opacity-60" />
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuLabel>Select workspace</DropdownMenuLabel>
         <DropdownMenuSeparator />
