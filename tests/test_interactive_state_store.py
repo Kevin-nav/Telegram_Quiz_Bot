@@ -143,6 +143,18 @@ async def test_catalog_cache_helpers_round_trip_and_invalidation():
 
 
 @pytest.mark.asyncio
+async def test_catalog_cache_uses_versioned_namespace_keys():
+    redis = FakeRedis()
+    store = InteractiveStateStore(redis, bot_id="tanjah")
+
+    await store.cache_catalog_faculties(
+        [{"code": "engineering", "name": "Faculty of Engineering"}]
+    )
+
+    assert "catalog:v2:tanjah:faculties" in redis.storage
+
+
+@pytest.mark.asyncio
 async def test_catalog_cache_bulk_invalidation_clears_all_tracked_keys():
     store = InteractiveStateStore(FakeRedis())
 

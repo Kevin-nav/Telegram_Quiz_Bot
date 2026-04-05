@@ -31,6 +31,7 @@ REPORT_DRAFT_TTL_SECONDS = 30 * 60
 LOCK_TTL_SECONDS = 15
 ADAPTIVE_SNAPSHOT_TTL_SECONDS = 10 * 60
 CATALOG_LOOKUP_TTL_SECONDS = 60 * 60
+CATALOG_CACHE_NAMESPACE_VERSION = "v2"
 
 
 @dataclass(slots=True)
@@ -464,7 +465,7 @@ class InteractiveStateStore:
 
     def _catalog_key(self, scope: str, *parts: str) -> str:
         suffix = ":".join(parts)
-        base_key = f"catalog:{self.bot_id}:{scope}"
+        base_key = f"catalog:{CATALOG_CACHE_NAMESPACE_VERSION}:{self.bot_id}:{scope}"
         return base_key if not suffix else f"{base_key}:{suffix}"
 
     async def _cache_catalog_value(
