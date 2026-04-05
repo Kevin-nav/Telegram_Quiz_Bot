@@ -8,5 +8,16 @@ data:
   APP_ENV: "production"
   PORT: "8000"
   ARQ_QUEUE_NAME: "adarkwa-bot-background-v2"
-  ADMIN_ALLOWED_ORIGINS: "https://admin.adarkwa.study"
-  ADMIN_SESSION_COOKIE_DOMAIN: ".adarkwa.study"
+  ADMIN_ALLOWED_ORIGINS: "https://admin-tgbot.sankoslides.com"
+  ADMIN_SESSION_COOKIE_DOMAIN: ""
+  ADMIN_FRONTEND_BASE_URL: "https://admin-tgbot.sankoslides.com"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adarkwa-bot-admin-config
+data:
+  NODE_ENV: "production"
+  HOSTNAME: "0.0.0.0"
+  PORT: "3000"
+  NEXT_PUBLIC_ADMIN_API_BASE_URL: ""

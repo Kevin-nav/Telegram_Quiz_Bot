@@ -5,7 +5,7 @@ These instructions set up a secure, low-maintenance production deployment for `@
 - `k3s` for Kubernetes
 - `cloudflared` as a host-level tunnel service
 - GHCR for images
-- a local `systemd` timer that pulls and deploys the latest tested `main` image
+- a local `systemd` timer that pulls and deploys the latest tested `main` release
 
 This setup is intentionally pull-based:
 
@@ -21,13 +21,16 @@ As of March 24, 2026, the intended production shape is:
 
 - `cloudflared` runs on the VPS host and forwards the public bot hostname to `http://localhost:80`
 - K3s Traefik ingress routes `tg-bot-tanjah.sankoslides.com` to `adarkwa-bot-service`
+- K3s Traefik ingress routes `admin-tgbot.sankoslides.com/admin/*` to `adarkwa-bot-service`
+- K3s Traefik ingress routes `admin-tgbot.sankoslides.com/*` to `adarkwa-bot-admin-service`
 - production Redis is VPS-local `valkey-server`
 - pods reach Valkey through the VPS private IP in `REDIS_URL`
-- the deploy timer is enabled and the deploy script records `last-deployed-digest` and `last-failed-digest`
+- the deploy timer is enabled and the deploy script records `last-deployed-sha` and `last-failed-sha`
 - production defaults stay conservative:
   - `ENABLE_HPA=false`
   - `1` webhook replica
   - `1` worker replica
+  - `1` admin replica
 
 The currently known working VPS private IP is `10.226.0.2`. If the VPS network changes later, update:
 
@@ -35,7 +38,7 @@ The currently known working VPS private IP is `10.226.0.2`. If the VPS network c
 - Kubernetes secret `REDIS_URL`
 - any operator notes that mention the old private IP
 
-Do not point a host-level `cloudflared` service at `*.svc.cluster.local`. The working production route is `cloudflared -> localhost:80 -> Traefik ingress -> adarkwa-bot-service`.
+Do not point a host-level `cloudflared` service at `*.svc.cluster.local`. The working production route is `cloudflared -> localhost:80 -> Traefik ingress -> in-cluster services`.
 
 ## 1. Harden the VPS First
 
@@ -130,6 +133,12 @@ Set the bot webhook base URL to your Cloudflare hostname, for example:
 
 ```text
 https://tg-bot-tanjah.sankoslides.com
+```
+
+Publish the admin hostname on the same tunnel:
+
+```text
+https://admin-tgbot.sankoslides.com
 ```
 
 ## 4. Install Local Redis Or Valkey
@@ -297,7 +306,7 @@ If you later make the GHCR package public, this pull secret becomes optional.
 
 ## 8. Install the Local Deploy Agent
 
-The deploy agent polls GHCR for the digest behind `:latest`, then deploys locally with `kubectl`.
+The deploy agent refreshes `origin/main`, resolves that commit SHA, then deploys the matching backend and admin images locally with `kubectl`.
 
 Install the required registry helper:
 
@@ -323,7 +332,7 @@ Create the deploy environment file:
 sudo tee /etc/adarkwa-study-bot/deploy.env >/dev/null <<'EOF'
 NAMESPACE=adarkwa-study-bot
 IMAGE_REPO=ghcr.io/<github-owner>/adarkwa-study-bot
-TRACKING_TAG=latest
+ADMIN_IMAGE_REPO=ghcr.io/<github-owner>/adarkwa-study-bot-admin
 REPO_URL=<YOUR_REPO_CLONE_URL>
 REPO_BRANCH=main
 DEPLOY_ROOT=/opt/adarkwa-study-bot-deploy
@@ -334,6 +343,7 @@ GHCR_USERNAME=<YOUR_GITHUB_USERNAME>
 GHCR_TOKEN_FILE=/etc/adarkwa-study-bot/ghcr-token
 WEBHOOK_DEPLOYMENT=adarkwa-bot-webhook
 WORKER_DEPLOYMENT=adarkwa-bot-worker
+ADMIN_DEPLOYMENT=adarkwa-bot-admin
 MIGRATION_PREFIX=adarkwa-bot-migrate
 ENABLE_HPA=false
 EOF
@@ -352,6 +362,12 @@ Ensure the ingress exists so Traefik can route the public hostname to the bot se
 ```bash
 kubectl apply -f /opt/adarkwa-study-bot-deploy/repo/k8s/ingress.yaml
 kubectl get ingress -n adarkwa-study-bot
+```
+
+For Cloudflare Tunnel, add both public hostnames and point both at:
+
+```text
+http://localhost:80
 ```
 
 ## 9. Cut Over To The VPS-local Redis Endpoint
@@ -392,10 +408,10 @@ kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
 ```
 
-If the rollout has already marked the digest as failed, clear the guard and rerun:
+If the rollout has already marked the release as failed, clear the guard and rerun:
 
 ```bash
-sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-digest
+sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-sha
 sudo systemctl start adarkwa-bot-deploy.service
 ```
 
@@ -422,12 +438,14 @@ Push a change to `main`.
 GitHub Actions will:
 
 1. run tests
-2. build the image
+2. build the backend and admin images
 3. push:
    - `ghcr.io/<owner>/adarkwa-study-bot:<git-sha>`
    - `ghcr.io/<owner>/adarkwa-study-bot:latest`
+   - `ghcr.io/<owner>/adarkwa-study-bot-admin:<git-sha>`
+   - `ghcr.io/<owner>/adarkwa-study-bot-admin:latest`
 
-The VPS timer will notice the new `latest` digest and deploy it automatically within a few minutes.
+The VPS timer will notice the new `main` release SHA and deploy it automatically within a few minutes.
 
 If you want to trigger immediately:
 
@@ -459,13 +477,17 @@ kubectl get jobs -n adarkwa-study-bot
 kubectl get svc -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-admin -n adarkwa-study-bot
 kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
+kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-admin --tail=100
 ```
 
 Check the public webhook URL:
 
 ```bash
 curl -I https://tg-bot-tanjah.sankoslides.com/health
+curl -I https://admin-tgbot.sankoslides.com/login
+curl -i https://admin-tgbot.sankoslides.com/admin/auth/me
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
 
@@ -511,8 +533,9 @@ Operational defaults in this repo intentionally keep production conservative on 
 
 - one webhook replica
 - one worker replica
+- one admin replica
 - HPA disabled unless you explicitly set `ENABLE_HPA=true`
-- failed digests are not retried forever by the timer
+- failed release SHAs are not retried forever by the timer
 
 For a compact post-deploy checklist, you can also run:
 
@@ -556,8 +579,9 @@ Change Cloudflare only:
 
 Current expected steady state after any healthy rollout:
 
-- `kubectl get pods -n adarkwa-study-bot` shows `1/1 Running` for webhook and worker
+- `kubectl get pods -n adarkwa-study-bot` shows `1/1 Running` for webhook, worker, and admin
 - `curl -I https://tg-bot-tanjah.sankoslides.com/health` returns `200`
+- `curl -I https://admin-tgbot.sankoslides.com/login` returns `200`
 - `getWebhookInfo` shows `https://tg-bot-tanjah.sankoslides.com/webhook`
 
 You do not need:

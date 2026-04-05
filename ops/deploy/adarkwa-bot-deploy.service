@@ -1,5 +1,5 @@
 [Unit]
-Description=Deploy the latest Adarkwa Study Bot production image
+Description=Deploy the latest Adarkwa Study Bot backend and admin release
 After=network-online.target k3s.service
 Wants=network-online.target
 

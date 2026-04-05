@@ -16,3 +16,20 @@ spec:
                 name: adarkwa-bot-service
                 port:
                   number: 80
+    - host: admin-tgbot.sankoslides.com
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: adarkwa-bot-service
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adarkwa-bot-admin-service
+                port:
+                  number: 80

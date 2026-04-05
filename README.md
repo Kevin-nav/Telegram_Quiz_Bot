@@ -155,10 +155,10 @@ alembic upgrade head
 The recommended production setup is now:
 
 - `.github/workflows/ci.yml` runs tests on push and pull request
-- `.github/workflows/deploy.yml` runs on `main`, tests again, and publishes production images to GHCR
+- `.github/workflows/deploy.yml` runs on `main`, tests again, and publishes backend plus admin production images to GHCR
 - the VPS runs a local deploy agent from `ops/deploy/` as a `systemd` timer
-- the deploy agent watches `ghcr.io/<github-owner>/adarkwa-study-bot:latest`, renders manifests with the exact digest, runs migrations, and rolls out the webhook and worker locally
-- `cloudflared` keeps the Telegram webhook hostname pointed at `http://localhost:80`, and Traefik ingress routes the hostname to `adarkwa-bot-service`
+- the deploy agent resolves the `origin/main` commit SHA, renders manifests with the exact backend and admin image digests, runs migrations, and rolls out the webhook, worker, and admin frontend locally
+- `cloudflared` keeps both the Telegram webhook hostname and `admin-tgbot.sankoslides.com` pointed at `http://localhost:80`, and Traefik ingress routes each hostname and path to the correct in-cluster service
 - Redis is a VPS-local `valkey-server` or `redis-server` instance reached from Kubernetes through the VPS private IP, not a request-metered hosted tier
 
 This model keeps Kubernetes credentials off GitHub and avoids exposing the cluster API publicly.
@@ -173,6 +173,8 @@ GitHub is responsible for:
 - publishing:
   - `ghcr.io/<github-owner>/adarkwa-study-bot:<git-sha>`
   - `ghcr.io/<github-owner>/adarkwa-study-bot:latest`
+  - `ghcr.io/<github-owner>/adarkwa-study-bot-admin:<git-sha>`
+  - `ghcr.io/<github-owner>/adarkwa-study-bot-admin:latest`
 
 GitHub is not responsible for:
 
@@ -211,3 +213,17 @@ http://localhost:80
 ```
 
 Host-level `cloudflared` should target the local Traefik listener on the VPS. Traefik then uses the ingress host rule to route traffic to `adarkwa-bot-service` inside the cluster.
+
+For the admin frontend, publish:
+
+```text
+https://admin-tgbot.sankoslides.com
+```
+
+and route it through the same tunnel target:
+
+```text
+http://localhost:80
+```
+
+Ingress handles the split so `/admin/*` reaches FastAPI and all other admin-host traffic reaches the Next.js frontend.

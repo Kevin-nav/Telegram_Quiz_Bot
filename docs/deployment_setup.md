@@ -5,7 +5,7 @@ This guide covers the recommended production deployment shape for `@Adarkwa_Stud
 - GitHub Actions for CI and image publishing
 - GitHub Container Registry for images
 - K3s on a VPS for runtime
-- Kubernetes for the webhook, worker, and migration job
+- Kubernetes for the webhook, worker, admin frontend, and migration job
 - Cloudflare Tunnel for the Telegram webhook hostname
 - a pull-based deploy agent on the VPS
 
@@ -13,11 +13,11 @@ The deployment flow is:
 
 1. Push to `main`
 2. GitHub Actions runs tests
-3. GitHub Actions builds and pushes the image to GHCR
-4. The VPS deploy agent detects the new `latest` digest
+3. GitHub Actions builds and pushes the backend and admin images to GHCR
+4. The VPS deploy agent resolves the new `origin/main` commit SHA
 5. The VPS applies Kubernetes manifests locally
 6. The VPS runs database migrations
-7. The VPS rolls out the webhook and worker deployments
+7. The VPS rolls out the webhook, worker, and admin deployments
 
 For the shared admin UI, keep the first-deploy sequence explicit:
 
@@ -56,10 +56,13 @@ Production defaults stay conservative:
 The deployment model described in this repo is no longer a planned target. It is the current intended production state:
 
 - GitHub Actions publishes GHCR images from `main`
-- the VPS deploy timer pulls and deploys the new digest
+- the VPS deploy timer pulls and deploys the new release SHA
 - `cloudflared` on the VPS points to `http://localhost:80`
 - Traefik ingress routes `tg-bot-tanjah.sankoslides.com` to `adarkwa-bot-service`
+- Traefik ingress routes `admin-tgbot.sankoslides.com/admin/*` to `adarkwa-bot-service`
+- Traefik ingress routes `admin-tgbot.sankoslides.com/*` to `adarkwa-bot-admin-service`
 - Kubernetes webhook and worker deployments run with conservative defaults
+- Kubernetes admin deployment runs with one replica
 - Redis is a VPS-local `valkey-server` instance, not Upstash or another request-capped tier
 
 The currently known working VPS-private endpoint is:
@@ -83,7 +86,9 @@ The repo contains:
 - `k8s/namespace.yaml`
 - `k8s/config.yaml`
 - `k8s/deployment.yaml`
+- `k8s/admin-deployment.yaml`
 - `k8s/service.yaml`
+- `k8s/admin-service.yaml`
 - `k8s/ingress.yaml`
 - `k8s/hpa.yaml`
 - `k8s/migration-job.yaml`
@@ -96,7 +101,7 @@ At deploy time:
 - `k8s/config.yaml` provides non-secret runtime values
 - the Kubernetes secret already present in the cluster supplies runtime secrets
 - the VPS deploy script renders the deployment and migration job with the exact image digest to deploy
-- production defaults keep one webhook and one worker replica on a single VPS unless you explicitly enable HPA
+- production defaults keep one webhook, one worker, and one admin replica on a single VPS unless you explicitly enable HPA
 
 ## 2. GitHub Setup
 
@@ -105,7 +110,7 @@ At deploy time:
 GitHub Actions is responsible for:
 
 - running tests
-- building the production image
+- building the production images
 - publishing immutable and tracking tags to GHCR
 
 GitHub Actions is not responsible for:
@@ -121,9 +126,11 @@ The workflow publishes:
 ```text
 ghcr.io/<github-owner>/adarkwa-study-bot:<git-sha>
 ghcr.io/<github-owner>/adarkwa-study-bot:latest
+ghcr.io/<github-owner>/adarkwa-study-bot-admin:<git-sha>
+ghcr.io/<github-owner>/adarkwa-study-bot-admin:latest
 ```
 
-The VPS deploy agent watches `:latest` and deploys the underlying digest.
+The VPS deploy agent uses the `origin/main` commit SHA as the coordinated release identifier and deploys the immutable backend and admin digests for that SHA.
 
 ### 2.3. GitHub Secrets
 
@@ -182,6 +189,7 @@ For the shared admin UI, also configure:
 
 - `ADMIN_ALLOWED_ORIGINS`
 - `ADMIN_SESSION_COOKIE_DOMAIN`
+- `ADMIN_FRONTEND_BASE_URL`
 
 These are non-secret runtime values and can live in `k8s/config.yaml` or the deploy-agent env file depending on your rollout shape.
 
@@ -218,6 +226,12 @@ Recommended webhook base URL:
 https://tg-bot-tanjah.sankoslides.com
 ```
 
+Recommended admin URL:
+
+```text
+https://admin-tgbot.sankoslides.com
+```
+
 ### 4.2. Why This Shape
 
 - Telegram gets a stable HTTPS endpoint
@@ -231,16 +245,17 @@ The VPS deploy agent runs as a `systemd` one-shot service plus timer.
 
 Responsibilities:
 
-- check the digest for `ghcr.io/<owner>/adarkwa-study-bot:latest`
+- resolve the release SHA from `origin/main`
+- resolve backend and admin image digests for that SHA
 - refresh a dedicated checkout at `origin/main`
-- render the deployment and migration manifests with the immutable image digest
+- render the deployment and migration manifests with the immutable backend and admin image digests
 - apply namespace, config, and service manifests
 - run the migration job
 - wait for the migration job to complete
-- apply the deployment manifest
-- wait for webhook and worker rollout success
-- record the last deployed digest locally
-- stop automatically retrying the same failed digest on every timer tick
+- apply the backend and admin deployment manifests
+- wait for webhook, worker, and admin rollout success
+- record the last deployed release SHA locally
+- stop automatically retrying the same failed release SHA on every timer tick
 
 Why this is preferred:
 
@@ -269,8 +284,8 @@ Why this is preferred:
 Normal production deployment:
 
 1. push changes to `main`
-2. GitHub runs tests and publishes the image
-3. the VPS timer detects the new digest
+2. GitHub runs tests and publishes the backend and admin images
+3. the VPS timer detects the new release SHA
 4. the VPS performs the deployment locally
 
 Useful commands:
@@ -281,6 +296,7 @@ systemctl status adarkwa-bot-deploy.service
 journalctl -u adarkwa-bot-deploy.service -n 100 --no-pager
 kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
+kubectl rollout status deployment/adarkwa-bot-admin -n adarkwa-study-bot
 kubectl logs job/<migration-job-name> -n adarkwa-study-bot
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
@@ -333,14 +349,17 @@ Check:
 - `systemctl status adarkwa-bot-deploy.timer`
 - `journalctl -u adarkwa-bot-deploy.service`
 - whether the GHCR token is valid
-- whether `/opt/adarkwa-study-bot-deploy/state/last-failed-digest` exists for the current image
+- whether `/opt/adarkwa-study-bot-deploy/state/last-failed-sha` exists for the current release
 
 Manual recovery commands:
 
 ```bash
-sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-digest
+sudo rm -f /opt/adarkwa-study-bot-deploy/state/last-failed-sha
 sudo systemctl start adarkwa-bot-deploy.service
 kubectl scale deployment/adarkwa-bot-webhook deployment/adarkwa-bot-worker \
+  --namespace adarkwa-study-bot \
+  --replicas=1
+kubectl scale deployment/adarkwa-bot-admin \
   --namespace adarkwa-study-bot \
   --replicas=1
 ```
@@ -375,10 +394,12 @@ Check:
 Run these after any production rollout:
 
 ```bash
-crane digest ghcr.io/<github-owner>/adarkwa-study-bot:latest
-cat /opt/adarkwa-study-bot-deploy/state/last-deployed-digest
+cat /opt/adarkwa-study-bot-deploy/state/last-deployed-sha
+cat /opt/adarkwa-study-bot-deploy/state/last-deployed-backend-digest
+cat /opt/adarkwa-study-bot-deploy/state/last-deployed-admin-digest
 kubectl get pods -n adarkwa-study-bot
 kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-webhook --tail=100
+kubectl logs -n adarkwa-study-bot deployment/adarkwa-bot-admin --tail=100
 ./scripts/production_smoke_check.sh
 curl -s "https://api.telegram.org/bot<token>/getWebhookInfo"
 ```
@@ -409,9 +430,9 @@ For the admin platform specifically:
 1. run `alembic upgrade head`
 2. run `python scripts/bootstrap_admin.py --email <admin-email>`
 3. verify the backend serves `/admin/*`
-4. verify the admin frontend points at the backend origin through `NEXT_PUBLIC_ADMIN_API_BASE_URL`
-5. verify `ADMIN_ALLOWED_ORIGINS` includes the frontend origin
-6. set `ADMIN_SESSION_COOKIE_DOMAIN` only when you need cross-subdomain cookie sharing
+4. verify `admin-tgbot.sankoslides.com/login` serves the Next.js frontend
+5. verify `admin-tgbot.sankoslides.com/admin/auth/me` reaches the backend and returns `401` before login
+6. keep `ADMIN_SESSION_COOKIE_DOMAIN` empty unless you deliberately want cross-subdomain cookie sharing
 
 ## 12. Operator Change Matrix
 

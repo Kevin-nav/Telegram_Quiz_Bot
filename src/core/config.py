@@ -100,6 +100,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_settings(self) -> "Settings":
+        if self.admin_session_cookie_domain == "":
+            self.admin_session_cookie_domain = None
+
         if not self.database_url:
             raise ValueError("DATABASE_URL environment variable not set.")
         normalize_async_database_url(self.database_url)
