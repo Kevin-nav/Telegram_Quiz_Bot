@@ -93,6 +93,7 @@ export type QuestionRecord = {
   question_key: string;
   course_id: string;
   course_slug: string;
+  course_name: string;
   question_text: string;
   options: string[];
   correct_option_text: string;
@@ -311,36 +312,51 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.text()) as T;
 }
 
+const ADMIN_FETCH_TIMEOUT_MS = 30_000;
+
 export async function adminFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(buildUrl(path), {
-    ...init,
-    credentials: "include",
-    headers: buildHeaders(init.headers, init.body),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ADMIN_FETCH_TIMEOUT_MS);
 
-  if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const payload = await response.json();
-      if (typeof payload === "string") {
-        detail = payload;
-      } else if (payload && typeof payload === "object" && "detail" in payload) {
-        detail = String((payload as { detail: unknown }).detail);
+  try {
+    const response = await fetch(buildUrl(path), {
+      ...init,
+      credentials: "include",
+      headers: buildHeaders(init.headers, init.body),
+      signal: init.signal ?? controller.signal,
+    });
+
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        if (typeof payload === "string") {
+          detail = payload;
+        } else if (payload && typeof payload === "object" && "detail" in payload) {
+          detail = String((payload as { detail: unknown }).detail);
+        }
+      } catch {
+        const text = await response.text().catch(() => "");
+        if (text) {
+          detail = text;
+        }
       }
-    } catch {
-      const text = await response.text().catch(() => "");
-      if (text) {
-        detail = text;
-      }
+
+      throw new Error(`Admin request failed: ${response.status} ${detail}`);
     }
 
-    throw new Error(`Admin request failed: ${response.status} ${detail}`);
+    return parseResponse<T>(response);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Admin request timed out. The server took too long to respond.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return parseResponse<T>(response);
 }
 
 function normalizeListResponse<T>(payload: unknown): T[] {

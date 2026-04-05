@@ -359,3 +359,27 @@ def _resolve_profile_service(runtime, bot_id: str | None):
     if isinstance(telegram_apps, dict) and bot_id in telegram_apps:
         return telegram_apps[bot_id].bot_data["profile_service"]
     return runtime.telegram_app.bot_data["profile_service"]
+
+
+async def precompute_admin_analytics(payload: dict | None = None) -> None:
+    """Precompute analytics summaries for all configured bots.
+
+    Called:
+    - On a cron schedule (every 5 minutes) to keep the cache warm
+    - After quiz attempts are persisted (via cache version bump)
+    """
+    from src.bot.runtime_config import ADARKWA_BOT_ID, TANJAH_BOT_ID
+    from src.domains.admin.analytics_service import AdminAnalyticsService
+
+    service = AdminAnalyticsService()
+    bot_ids = [TANJAH_BOT_ID, ADARKWA_BOT_ID]
+
+    for bot_id in bot_ids:
+        try:
+            logger.info("Precomputing analytics summary for bot_id=%s", bot_id)
+            await service.precompute_summary(active_bot_id=bot_id)
+            logger.info("Analytics summary precomputed for bot_id=%s", bot_id)
+        except Exception:
+            logger.exception(
+                "Failed to precompute analytics summary for bot_id=%s", bot_id
+            )

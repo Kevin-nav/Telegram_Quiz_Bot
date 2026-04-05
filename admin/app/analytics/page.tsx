@@ -63,21 +63,51 @@ function phaseDot(phase: string) {
 export default function AnalyticsPage() {
   const router = useRouter();
   const principalQuery = useAdminPrincipal();
-  const activeBotId = principalQuery.data?.active_bot_id ?? null;
+  const principal = principalQuery.data ?? null;
+  const activeBotId = principal?.active_bot_id ?? null;
+  const hasBotSelected = Boolean(activeBotId);
   const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
     queryKey: adminQueryKeys.analytics(activeBotId),
     queryFn: fetchAnalyticsSummary,
-    enabled: Boolean(activeBotId),
-    retry: false,
+    enabled: hasBotSelected,
+    staleTime: 60_000,
   });
 
-  if ((principalQuery.isLoading || analyticsQuery.isLoading) && !analyticsQuery.data) {
+  if (principalQuery.isLoading || (analyticsQuery.isLoading && !analyticsQuery.data)) {
     return (
       <AdminLoadingState
         title="Analytics"
         description="Telegram bot usage and student performance data."
         message="Loading analytics..."
       />
+    );
+  }
+
+  if (!hasBotSelected) {
+    return (
+      <AdminShell>
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Analytics</h2>
+            <p className="text-sm text-muted-foreground">
+              Telegram bot usage and student performance data.
+            </p>
+          </div>
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Target className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">No workspace selected</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Select a bot workspace from the header to view analytics data.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </AdminShell>
     );
   }
 

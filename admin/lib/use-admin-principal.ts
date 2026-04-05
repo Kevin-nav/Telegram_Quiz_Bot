@@ -10,5 +10,6 @@ export function useAdminPrincipal() {
     queryKey: adminQueryKeys.principal(),
     queryFn: fetchAdminPrincipal,
     retry: false,
+    staleTime: 5 * 60_000,
   });
 }

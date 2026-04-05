@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from arq.cron import cron
+
 from src.app.bootstrap import (
     create_app_state,
     shutdown_worker_app,
@@ -23,6 +25,7 @@ from src.workers.background_jobs import (
     review_time_allocation as handle_review_time_allocation,
     rebuild_profile_cache as handle_rebuild_profile_cache,
     record_analytics_event as handle_record_analytics_event,
+    precompute_admin_analytics as handle_precompute_admin_analytics,
 )
 
 logger = logging.getLogger("arq.worker")
@@ -94,6 +97,11 @@ async def review_time_allocation(ctx: dict[str, Any], payload: dict) -> None:
     await handle_review_time_allocation(payload, payload.get("attempts", []))
 
 
+async def precompute_admin_analytics(ctx: dict[str, Any]) -> None:
+    """Precompute analytics summaries (called by cron & on-demand)."""
+    await handle_precompute_admin_analytics()
+
+
 class WorkerSettings:
     functions = [
         process_telegram_update,
@@ -107,6 +115,15 @@ class WorkerSettings:
         review_empirical_difficulty,
         review_distractor_patterns,
         review_time_allocation,
+        precompute_admin_analytics,
+    ]
+    cron_jobs = [
+        cron(
+            precompute_admin_analytics,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            timeout=120,
+            unique=True,
+        ),
     ]
     redis_settings = build_arq_redis_settings()
     queue_name = ARQ_QUEUE_NAME

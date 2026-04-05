@@ -20,7 +20,8 @@ from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.db.session import AsyncSessionLocal
 
 
-ANALYTICS_SUMMARY_CACHE_TTL_SECONDS = 60
+ANALYTICS_SUMMARY_CACHE_TTL_SECONDS = 300
+ANALYTICS_SUMMARY_WINDOW_DAYS = 30
 ANALYTICS_STUDENT_CACHE_TTL_SECONDS = 90
 
 
@@ -39,6 +40,7 @@ class AdminAnalyticsService:
         active_bot_id: str | None = None,
         course_codes: set[str] | None = None,
     ) -> dict:
+        """Return analytics summary from cache. Falls back to empty data if cache is cold."""
         cached = await self.cache_store.get_json(
             "analytics-summary",
             bot_id=active_bot_id,
@@ -47,9 +49,27 @@ class AdminAnalyticsService:
         if cached is not None:
             return cached
 
+        # Cache miss — compute synchronously but with a time window cap
+        return await self.precompute_summary(
+            active_bot_id=active_bot_id,
+            course_codes=course_codes,
+        )
+
+    async def precompute_summary(
+        self,
+        *,
+        active_bot_id: str | None = None,
+        course_codes: set[str] | None = None,
+    ) -> dict:
+        """Compute analytics summary from database and write to cache.
+
+        Safe to call from a background worker on a schedule.
+        """
+        since = datetime.now(UTC) - timedelta(days=ANALYTICS_SUMMARY_WINDOW_DAYS)
         attempts = await self._list_attempts(
             active_bot_id=active_bot_id,
             course_codes=course_codes,
+            since=since,
         )
         course_names = await self._load_course_names({attempt.course_id for attempt in attempts})
         leaderboard = await self._build_leaderboard(
@@ -638,6 +658,8 @@ class AdminAnalyticsService:
         user_id: int | None = None,
         active_bot_id: str | None = None,
         course_codes: set[str] | None = None,
+        since: datetime | None = None,
+        limit: int | None = None,
     ) -> list[QuestionAttempt]:
         if course_codes is not None and not course_codes:
             return []
@@ -650,7 +672,11 @@ class AdminAnalyticsService:
                 stmt = stmt.where(QuestionAttempt.bot_id == active_bot_id)
             if course_codes is not None:
                 stmt = stmt.where(QuestionAttempt.course_id.in_(sorted(course_codes)))
+            if since is not None:
+                stmt = stmt.where(QuestionAttempt.created_at >= since)
             stmt = stmt.order_by(QuestionAttempt.created_at.desc(), QuestionAttempt.id.desc())
+            if limit is not None:
+                stmt = stmt.limit(limit)
             result = await session.execute(stmt)
             return list(result.scalars().all())
 

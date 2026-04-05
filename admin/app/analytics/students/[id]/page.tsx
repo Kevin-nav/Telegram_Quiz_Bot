@@ -133,7 +133,7 @@ export default function StudentDetailPage() {
     queryKey: adminQueryKeys.studentAnalytics(activeBotId, userId),
     queryFn: () => fetchStudentAnalytics(userId),
     enabled: hasValidUserId && Boolean(activeBotId),
-    retry: false,
+    staleTime: 90_000,
   });
 
   const data = studentQuery.data ?? null;

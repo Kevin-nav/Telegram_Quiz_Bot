@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { ChevronRight, Circle, CheckCircle2, Loader2 } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   fetchCatalogTree,
-  saveCatalogOffering,
   type CatalogNode,
 } from "@/lib/api";
 import { adminQueryKeys } from "@/lib/query-keys";
@@ -19,13 +16,13 @@ import { useAdminPrincipal } from "@/lib/use-admin-principal";
 const LEVEL_LABELS = ["Faculty", "Program", "Level", "Semester", "Course"];
 
 export function MillerColumns() {
-  const queryClient = useQueryClient();
   const principalQuery = useAdminPrincipal();
   const activeBotId = principalQuery.data?.active_bot_id ?? null;
   const catalogQuery = useQuery({
     queryKey: adminQueryKeys.catalogTree(activeBotId),
     queryFn: fetchCatalogTree,
     enabled: Boolean(activeBotId),
+    staleTime: 5 * 60_000,
   });
   const [catalog, setCatalog] = useState<CatalogNode[]>([]);
   const [selections, setSelections] = useState<string[]>([]);
@@ -60,62 +57,6 @@ export function MillerColumns() {
       return next;
     });
   }
-
-  const toggleOfferingMutation = useMutation({
-    mutationFn: saveCatalogOffering,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["catalog-tree"] });
-    },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Unable to update course availability.",
-      );
-      setCatalog(catalogQuery.data ?? []);
-    },
-  });
-
-  function handleToggleActive(path: string[], item: CatalogNode) {
-    if (path.length < 4) {
-      return;
-    }
-
-    const [faculty_code, program_code, level_code, semester_code] = path;
-    const nextActive = !(item.active ?? true);
-
-    setCatalog((prev) => {
-      const next = JSON.parse(JSON.stringify(prev)) as CatalogNode[];
-      let items = next;
-      for (const segment of path) {
-        const parent = items.find((i) => i.code === segment);
-        if (!parent?.children) return prev;
-        items = parent.children;
-      }
-      const target = items.find((i) => i.code === item.code);
-      if (!target) return prev;
-      target.active = nextActive;
-      toast.success(
-        `${target.name} is now ${target.active ? "active" : "inactive"}`,
-      );
-      return next;
-    });
-
-    toggleOfferingMutation.mutate({
-      faculty_code,
-      program_code,
-      level_code,
-      semester_code,
-      course_code: item.code,
-      is_active: nextActive,
-    });
-  }
-
-  // Derive the path for toggle (parent codes leading to current column)
-  function getPathForDepth(depth: number) {
-    return selections.slice(0, depth);
-  }
-
   return (
     <div className="rounded-lg border bg-card">
       {catalogQuery.isLoading ? (
@@ -175,19 +116,7 @@ export function MillerColumns() {
                         {/* Name */}
                         <span className="flex-1 truncate">{item.name}</span>
 
-                        {/* Toggle for leaf nodes */}
-                        {isLeaf && (
-                          <Switch
-                            checked={item.active ?? true}
-                            onCheckedChange={() =>
-                              handleToggleActive(getPathForDepth(depth), item)
-                            }
-                            onClick={(e) => e.stopPropagation()}
-                            className="scale-75"
-                          />
-                        )}
-
-                        {/* Chevron for parent nodes */}
+                        {/* Chevron for parent nodes / spacer for leaves */}
                         {hasChildren && (
                           <ChevronRight
                             className={cn(

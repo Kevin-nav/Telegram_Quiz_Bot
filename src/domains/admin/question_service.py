@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from src.cache import redis_client
+from src.infra.db.models.catalog_course import CatalogCourse
 from src.infra.db.repositories.audit_log_repository import AuditLogRepository
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
+from src.infra.db.session import AsyncSessionLocal
 from src.infra.redis.admin_cache_store import AdminCacheStore
+
+from sqlalchemy import select
 
 
 QUESTION_LIST_CACHE_TTL_SECONDS = 120
@@ -15,10 +19,12 @@ class AdminQuestionService:
         question_repository: QuestionBankRepository | None = None,
         audit_log_repository: AuditLogRepository | None = None,
         cache_store: AdminCacheStore | None = None,
+        session_factory=AsyncSessionLocal,
     ):
         self.question_repository = question_repository or QuestionBankRepository()
         self.audit_log_repository = audit_log_repository or AuditLogRepository()
         self.cache_store = cache_store or AdminCacheStore(redis_client)
+        self.session_factory = session_factory
 
     async def list_questions(
         self,
@@ -42,7 +48,12 @@ class AdminQuestionService:
             limit=limit,
             offset=offset,
         )
-        payload = [self._serialize_question(question) for question in questions]
+        course_ids = {q.course_id for q in questions if q.course_id}
+        course_names = await self._load_course_names(course_ids)
+        payload = [
+            self._serialize_question(question, course_names)
+            for question in questions
+        ]
         await self.cache_store.set_json(
             "questions-list",
             payload,
@@ -98,12 +109,33 @@ class AdminQuestionService:
         await self.cache_store.bump_version("reports-detail", bot_id=active_bot_id)
         return after_payload
 
-    def _serialize_question(self, question) -> dict:
+    async def _load_course_names(self, course_ids: set[str]) -> dict[str, str]:
+        if not course_ids:
+            return {}
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(CatalogCourse).where(CatalogCourse.code.in_(sorted(course_ids)))
+            )
+            return {course.code: course.name for course in result.scalars().all()}
+
+    def _humanize_code(self, value: str | None) -> str:
+        if not value:
+            return ""
+        return str(value).replace("-", " ").replace("_", " ").title()
+
+    def _serialize_question(self, question, course_names: dict[str, str] | None = None) -> dict:
+        course_id = question.course_id
+        resolved_name = ""
+        if course_names and course_id in course_names:
+            resolved_name = course_names[course_id]
+        else:
+            resolved_name = self._humanize_code(course_id)
         return {
             "id": getattr(question, "id", 0),
             "question_key": question.question_key,
             "course_id": question.course_id,
             "course_slug": question.course_slug,
+            "course_name": resolved_name,
             "question_text": question.question_text,
             "options": list(getattr(question, "options", []) or []),
             "correct_option_text": question.correct_option_text,
