@@ -6,6 +6,7 @@ from src.infra.db.models import (
     QuestionBank,
     StudentCourseState,
     TelegramIdentity,
+    UserBotProfile,
     User,
     WebhookEvent,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "QuestionBank",
     "StudentCourseState",
     "TelegramIdentity",
+    "UserBotProfile",
     "User",
     "WebhookEvent",
     "engine",

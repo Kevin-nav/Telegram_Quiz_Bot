@@ -32,11 +32,13 @@ def test_adaptive_runtime_models_have_expected_columns():
     from src.infra.db.models.question_report import QuestionReport
     from src.infra.db.models.student_course_state import StudentCourseState
     from src.infra.db.models.student_question_srs import StudentQuestionSrs
+    from src.infra.db.models.user_bot_profile import UserBotProfile
 
     review_columns = {column.name for column in AdaptiveReviewFlag.__table__.columns}
     question_report_columns = {column.name for column in QuestionReport.__table__.columns}
     student_course_state_columns = {column.name for column in StudentCourseState.__table__.columns}
     srs_columns = {column.name for column in StudentQuestionSrs.__table__.columns}
+    user_bot_profile_columns = {column.name for column in UserBotProfile.__table__.columns}
 
     assert {"id", "question_id", "flag_type", "reason", "status", "created_at"} <= review_columns
     assert {
@@ -62,6 +64,19 @@ def test_adaptive_runtime_models_have_expected_columns():
         "created_at",
     } <= student_course_state_columns
     assert {"id", "user_id", "course_id", "bot_id", "question_id", "box", "created_at"} <= srs_columns
+    assert {
+        "id",
+        "user_id",
+        "bot_id",
+        "faculty_code",
+        "program_code",
+        "level_code",
+        "semester_code",
+        "preferred_course_code",
+        "onboarding_completed",
+        "created_at",
+        "updated_at",
+    } <= user_bot_profile_columns
 
 
 def test_staff_access_models_have_expected_columns():

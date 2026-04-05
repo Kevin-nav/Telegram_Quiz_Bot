@@ -345,10 +345,17 @@ async def generate_quiz_session(payload: dict) -> None:
 
 
 async def rebuild_profile_cache(runtime, payload: dict) -> None:
-    profile_service = runtime.telegram_app.bot_data["profile_service"]
+    profile_service = _resolve_profile_service(runtime, payload.get("bot_id"))
     await profile_service.rebuild_cache(payload["user_id"])
 
 
 async def persist_user_profile(runtime, payload: dict) -> None:
-    profile_service = runtime.telegram_app.bot_data["profile_service"]
+    profile_service = _resolve_profile_service(runtime, payload.get("bot_id"))
     await profile_service.persist_profile_record(payload)
+
+
+def _resolve_profile_service(runtime, bot_id: str | None):
+    telegram_apps = getattr(runtime, "telegram_apps", None)
+    if isinstance(telegram_apps, dict) and bot_id in telegram_apps:
+        return telegram_apps[bot_id].bot_data["profile_service"]
+    return runtime.telegram_app.bot_data["profile_service"]

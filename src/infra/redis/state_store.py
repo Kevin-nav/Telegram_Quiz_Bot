@@ -84,34 +84,37 @@ class InteractiveStateStore:
         return bool(result)
 
     async def get_user_profile(self, user_id: int) -> UserProfileRecord | None:
-        cached = self._get_local(user_profile_key(user_id))
+        key = user_profile_key(user_id, self.bot_id)
+        cached = self._get_local(key)
         if cached is not None:
             profile = cached
             profile.has_active_quiz = await self.has_active_quiz(user_id)
             return profile
 
-        payload = await self.redis_client.get(user_profile_key(user_id))
+        payload = await self.redis_client.get(key)
         if not payload:
             return None
 
-        await self._refresh_expiry(user_profile_key(user_id), USER_PROFILE_TTL_SECONDS)
+        await self._refresh_expiry(key, USER_PROFILE_TTL_SECONDS)
         data = json.loads(payload)
         record = UserProfileRecord.from_dict(data)
-        self._set_local(user_profile_key(user_id), record, USER_PROFILE_TTL_SECONDS)
+        self._set_local(key, record, USER_PROFILE_TTL_SECONDS)
         record.has_active_quiz = await self.has_active_quiz(user_id)
         return record
 
     async def set_user_profile(self, profile: UserProfileRecord) -> None:
+        key = user_profile_key(profile.id, self.bot_id)
         await self.redis_client.set(
-            user_profile_key(profile.id),
+            key,
             json.dumps(profile.to_dict()),
             ex=USER_PROFILE_TTL_SECONDS,
         )
-        self._set_local(user_profile_key(profile.id), profile, USER_PROFILE_TTL_SECONDS)
+        self._set_local(key, profile, USER_PROFILE_TTL_SECONDS)
 
     async def invalidate_user_profile(self, user_id: int) -> None:
-        await self._delete_key(user_profile_key(user_id))
-        self._local_cache.pop(user_profile_key(user_id), None)
+        key = user_profile_key(user_id, self.bot_id)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
 
     async def get_active_quiz(self, user_id: int) -> str | None:
         key = active_quiz_key(user_id, self.bot_id)

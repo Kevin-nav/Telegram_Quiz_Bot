@@ -21,3 +21,20 @@ def test_user_model_defaults_onboarding_to_false():
     assert column.nullable is False
     assert column.default is not None
     assert column.server_default is not None
+
+
+def test_user_bot_profile_model_has_bot_scoped_study_profile_columns():
+    from src.infra.db.models.user_bot_profile import UserBotProfile
+
+    columns = {column.name for column in UserBotProfile.__table__.columns}
+
+    assert {
+        "user_id",
+        "bot_id",
+        "faculty_code",
+        "program_code",
+        "level_code",
+        "semester_code",
+        "preferred_course_code",
+        "onboarding_completed",
+    } <= columns

@@ -13,6 +13,8 @@ from src.workers.background_jobs import (
     persist_question_report,
     persist_quiz_attempt,
     persist_quiz_session_progress,
+    persist_user_profile,
+    rebuild_profile_cache,
     review_distractor_patterns,
     review_empirical_difficulty,
     review_time_allocation,
@@ -267,3 +269,32 @@ async def test_persist_question_report_creates_row_and_tracks_event():
 
     create_report.assert_awaited_once_with(payload)
     assert track_event.await_args.kwargs["bot_id"] == "adarkwa"
+
+
+@pytest.mark.asyncio
+async def test_profile_background_jobs_resolve_profile_service_by_bot_id():
+    tanjah_profile_service = SimpleNamespace(
+        rebuild_cache=AsyncMock(),
+        persist_profile_record=AsyncMock(),
+    )
+    adarkwa_profile_service = SimpleNamespace(
+        rebuild_cache=AsyncMock(),
+        persist_profile_record=AsyncMock(),
+    )
+    runtime = SimpleNamespace(
+        telegram_app=SimpleNamespace(bot_data={"profile_service": tanjah_profile_service}),
+        telegram_apps={
+            "tanjah": SimpleNamespace(bot_data={"profile_service": tanjah_profile_service}),
+            "adarkwa": SimpleNamespace(bot_data={"profile_service": adarkwa_profile_service}),
+        },
+    )
+
+    await rebuild_profile_cache(runtime, {"user_id": 42, "bot_id": "adarkwa"})
+    await persist_user_profile(runtime, {"user_id": 42, "bot_id": "adarkwa"})
+
+    adarkwa_profile_service.rebuild_cache.assert_awaited_once_with(42)
+    adarkwa_profile_service.persist_profile_record.assert_awaited_once_with(
+        {"user_id": 42, "bot_id": "adarkwa"}
+    )
+    tanjah_profile_service.rebuild_cache.assert_not_called()
+    tanjah_profile_service.persist_profile_record.assert_not_called()

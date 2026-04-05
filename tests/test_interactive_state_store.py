@@ -200,7 +200,7 @@ async def test_report_note_state_round_trip_and_clear():
 
 
 @pytest.mark.asyncio
-async def test_runtime_state_is_bot_scoped_but_profile_cache_is_shared():
+async def test_runtime_state_and_profile_cache_are_bot_scoped():
     redis = FakeRedis()
     tanjah_store = InteractiveStateStore(redis, bot_id="tanjah")
     adarkwa_store = InteractiveStateStore(redis, bot_id="adarkwa")
@@ -211,6 +211,14 @@ async def test_runtime_state_is_bot_scoped_but_profile_cache_is_shared():
             display_name="Kevin",
             preferred_course_code="linear-algebra",
             onboarding_completed=True,
+        )
+    )
+    await adarkwa_store.set_user_profile(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            preferred_course_code="signals",
+            onboarding_completed=False,
         )
     )
     await tanjah_store.set_active_quiz(42, "tanjah-session")
@@ -225,6 +233,10 @@ async def test_runtime_state_is_bot_scoped_but_profile_cache_is_shared():
     assert adarkwa_profile is not None
     assert tanjah_profile.display_name == "Kevin"
     assert adarkwa_profile.display_name == "Kevin"
+    assert tanjah_profile.preferred_course_code == "linear-algebra"
+    assert adarkwa_profile.preferred_course_code == "signals"
+    assert tanjah_profile.onboarding_completed is True
+    assert adarkwa_profile.onboarding_completed is False
     assert await tanjah_store.get_active_quiz(42) == "tanjah-session"
     assert await adarkwa_store.get_active_quiz(42) == "adarkwa-session"
     assert await tanjah_store.get_report_draft(42) == {"bot_id": "tanjah"}

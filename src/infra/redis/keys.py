@@ -9,8 +9,8 @@ def rate_limit_key(user_id: int, action: str) -> str:
     return f"ratelimit:user:{user_id}:{action}"
 
 
-def user_profile_key(user_id: int) -> str:
-    return f"user-profile:{user_id}"
+def user_profile_key(user_id: int, bot_id: str = TANJAH_BOT_ID) -> str:
+    return f"user-profile:{bot_id}:{user_id}"
 
 
 def active_quiz_key(user_id: int, bot_id: str = TANJAH_BOT_ID) -> str:

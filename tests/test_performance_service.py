@@ -10,8 +10,16 @@ from src.domains.performance.service import PerformanceService
 class FakeQuestionAttemptRepository:
     def __init__(self, attempts):
         self.attempts = attempts
+        self.calls = []
 
-    async def list_attempts_for_user(self, *, user_id: int, limit: int | None = None):
+    async def list_attempts_for_user(
+        self,
+        *,
+        user_id: int,
+        bot_id: str | None = None,
+        limit: int | None = None,
+    ):
+        self.calls.append((user_id, bot_id, limit))
         return list(self.attempts[:limit] if limit is not None else self.attempts)
 
 
@@ -79,8 +87,10 @@ def test_build_summary_aggregates_accuracy_pace_and_course_strength():
 
 @pytest.mark.asyncio
 async def test_get_summary_returns_empty_shape_for_no_attempts():
+    repository = FakeQuestionAttemptRepository([])
     service = PerformanceService(
-        question_attempt_repository=FakeQuestionAttemptRepository([])
+        question_attempt_repository=repository,
+        bot_id="adarkwa",
     )
 
     summary = await service.get_summary(42)
@@ -88,3 +98,4 @@ async def test_get_summary_returns_empty_shape_for_no_attempts():
     assert summary["quiz_count"] == 0
     assert summary["attempt_count"] == 0
     assert summary["accuracy_percent"] == 0
+    assert repository.calls == [(42, "adarkwa", None)]

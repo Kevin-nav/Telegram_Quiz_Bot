@@ -14,6 +14,7 @@ from src.infra.db.models.question_report import QuestionReport
 from src.infra.db.models.student_course_state import StudentCourseState
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
+from src.infra.db.models.user_bot_profile import UserBotProfile
 from src.infra.db.models.user import User
 from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.db.session import AsyncSessionLocal
@@ -87,6 +88,7 @@ class AdminAnalyticsService:
             return cached
 
         user = await self._get_user(user_id)
+        user_profile = await self._get_user_profile(user_id, active_bot_id=active_bot_id)
         attempts = await self._list_attempts(
             user_id=user_id,
             active_bot_id=active_bot_id,
@@ -111,8 +113,12 @@ class AdminAnalyticsService:
             attempt.course_id for attempt in attempts
         } | {state.course_id for state in course_states}
         course_names = await self._load_course_names(course_ids)
-        faculty_name = await self._load_faculty_name(getattr(user, "faculty_code", None))
-        program_name = await self._load_program_name(getattr(user, "program_code", None))
+        faculty_name = await self._load_faculty_name(
+            getattr(user_profile, "faculty_code", None)
+        )
+        program_name = await self._load_program_name(
+            getattr(user_profile, "program_code", None)
+        )
 
         attempts_by_course: dict[str, list[QuestionAttempt]] = defaultdict(list)
         for attempt in attempts:
@@ -139,16 +145,21 @@ class AdminAnalyticsService:
             or f"Student {user_id}",
             "telegram_user_id": str(getattr(identity, "telegram_user_id", user_id)),
             "telegram_username": getattr(identity, "username", None) or f"user_{user_id}",
-            "faculty_code": getattr(user, "faculty_code", None) or "",
+            "faculty_code": getattr(user_profile, "faculty_code", None) or "",
             "faculty_name": faculty_name,
-            "program_code": getattr(user, "program_code", None) or "",
+            "program_code": getattr(user_profile, "program_code", None) or "",
             "program_name": program_name,
-            "level_code": getattr(user, "level_code", None) or "",
-            "semester_code": getattr(user, "semester_code", None) or "",
-            "preferred_course_code": getattr(user, "preferred_course_code", None) or "",
-            "onboarding_completed": bool(getattr(user, "onboarding_completed", False)),
+            "level_code": getattr(user_profile, "level_code", None) or "",
+            "semester_code": getattr(user_profile, "semester_code", None) or "",
+            "preferred_course_code": getattr(user_profile, "preferred_course_code", None) or "",
+            "onboarding_completed": bool(
+                getattr(user_profile, "onboarding_completed", False)
+            ),
             "created_at": self._isoformat(
-                getattr(user, "created_at", None) or last_active_at or datetime.now(UTC)
+                getattr(user_profile, "created_at", None)
+                or getattr(user, "created_at", None)
+                or last_active_at
+                or datetime.now(UTC)
             ),
             "last_active_at": self._isoformat(last_active_at or datetime.now(UTC)),
             "current_streak": streak_current,
@@ -258,6 +269,7 @@ class AdminAnalyticsService:
 
         user_ids = set(attempts_by_user)
         users = await self._load_users(user_ids)
+        user_profiles = await self._load_user_profiles(user_ids, active_bot_id=active_bot_id)
         identities = await self._load_telegram_identities(user_ids)
         course_states = await self._load_student_course_states_for_users(
             user_ids,
@@ -299,6 +311,7 @@ class AdminAnalyticsService:
             )
             identity = identities.get(user_id)
             user = users.get(user_id)
+            user_profile = user_profiles.get(user_id)
             accuracy = self._accuracy_percent(correct_count, len(user_attempts))
             entries.append(
                 {
@@ -594,6 +607,24 @@ class AdminAnalyticsService:
         async with self.session_factory() as session:
             return await session.get(User, user_id)
 
+    async def _get_user_profile(
+        self,
+        user_id: int,
+        *,
+        active_bot_id: str | None,
+    ) -> UserBotProfile | None:
+        if active_bot_id is None:
+            return None
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(UserBotProfile).where(
+                    UserBotProfile.user_id == user_id,
+                    UserBotProfile.bot_id == active_bot_id,
+                )
+            )
+            return result.scalar_one_or_none()
+
     async def _get_telegram_identity(self, user_id: int) -> TelegramIdentity | None:
         async with self.session_factory() as session:
             result = await session.execute(
@@ -724,6 +755,24 @@ class AdminAnalyticsService:
         async with self.session_factory() as session:
             result = await session.execute(select(User).where(User.id.in_(sorted(user_ids))))
             return {user.id: user for user in result.scalars().all()}
+
+    async def _load_user_profiles(
+        self,
+        user_ids: set[int],
+        *,
+        active_bot_id: str | None,
+    ) -> dict[int, UserBotProfile]:
+        if not user_ids or active_bot_id is None:
+            return {}
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(UserBotProfile).where(
+                    UserBotProfile.user_id.in_(sorted(user_ids)),
+                    UserBotProfile.bot_id == active_bot_id,
+                )
+            )
+            return {profile.user_id: profile for profile in result.scalars().all()}
 
     async def _load_telegram_identities(self, user_ids: set[int]) -> dict[int, TelegramIdentity]:
         if not user_ids:

@@ -20,3 +20,4 @@ def test_canonical_database_import_registers_question_bank_tables():
     assert "staff_bot_access" in table_names
     assert "staff_catalog_access" in table_names
     assert "audit_logs" in table_names
+    assert "user_bot_profiles" in table_names

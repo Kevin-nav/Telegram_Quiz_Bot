@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.infra.db.repositories.question_attempt_repository import QuestionAttemptRepository
 
 
@@ -9,14 +10,17 @@ class PerformanceService:
     def __init__(
         self,
         question_attempt_repository: QuestionAttemptRepository | None = None,
+        bot_id: str = TANJAH_BOT_ID,
     ):
         self.question_attempt_repository = (
             question_attempt_repository or QuestionAttemptRepository()
         )
+        self.bot_id = bot_id
 
     async def get_summary(self, user_id: int) -> dict:
         attempts = await self.question_attempt_repository.list_attempts_for_user(
-            user_id=user_id
+            user_id=user_id,
+            bot_id=self.bot_id,
         )
         return self.build_summary_from_attempts(attempts)
 

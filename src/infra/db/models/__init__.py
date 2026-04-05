@@ -22,6 +22,7 @@ from src.infra.db.models.staff_user_role import StaffUserRole
 from src.infra.db.models.student_course_state import StudentCourseState
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
+from src.infra.db.models.user_bot_profile import UserBotProfile
 from src.infra.db.models.user import User
 from src.infra.db.models.webhook_event import WebhookEvent
 
@@ -50,6 +51,7 @@ __all__ = [
     "StudentCourseState",
     "StudentQuestionSrs",
     "TelegramIdentity",
+    "UserBotProfile",
     "User",
     "WebhookEvent",
 ]
