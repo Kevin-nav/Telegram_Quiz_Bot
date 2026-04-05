@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import { cn } from "@/lib/utils";
 import {
   fetchAdminPrincipal,
@@ -79,41 +80,30 @@ export default function ReportsPage() {
 
   if (reportsQuery.isLoading && !reportsQuery.data) {
     return (
-      <AdminShell>
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Reports</h2>
-            <p className="text-sm text-muted-foreground">
-              Student-flagged questions from the Telegram bot.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              Loading reports...
-            </CardContent>
-          </Card>
-        </div>
-      </AdminShell>
+      <AdminLoadingState
+        title="Reports"
+        description="Student-flagged questions from the Telegram bot."
+        message="Loading reports..."
+      />
     );
   }
 
   if (reportsQuery.isError && !reportsQuery.data) {
     return (
-      <AdminShell>
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Reports</h2>
-            <p className="text-sm text-muted-foreground">
-              Student-flagged questions from the Telegram bot.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              Unable to load reports right now.
-            </CardContent>
-          </Card>
-        </div>
-      </AdminShell>
+      <AdminErrorState
+        title="Reports"
+        description="Student-flagged questions from the Telegram bot."
+        message="Unable to load reports right now."
+        action={
+          <AdminRetryButton
+            onClick={() => {
+              void principalQuery.refetch();
+              void reportsQuery.refetch();
+            }}
+            isPending={principalQuery.isFetching || reportsQuery.isFetching}
+          />
+        }
+      />
     );
   }
 

@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AdminShell } from "@/components/admin-shell";
+import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import {
   fetchAnalyticsSummary,
   listQuestions,
@@ -34,22 +35,6 @@ const trendIcons = {
 };
 
 const kpiIcons = [Users, MessageSquare, Target, Flame];
-
-function DashboardLoadingState() {
-  return (
-    <AdminShell>
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
-          <p className="text-sm text-muted-foreground">
-            Monitor bot usage, content health, and student engagement.
-          </p>
-        </div>
-        <p className="text-sm text-muted-foreground">Loading dashboard...</p>
-      </div>
-    </AdminShell>
-  );
-}
 
 export default function DashboardPage() {
   const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
@@ -95,26 +80,38 @@ export default function DashboardPage() {
     reportsQuery.isError && reports.length === 0;
 
   if (isLoading) {
-    return <DashboardLoadingState />;
+    return (
+      <AdminLoadingState
+        title="Dashboard"
+        description="Monitor bot usage, content health, and student engagement."
+        message="Loading dashboard data..."
+      />
+    );
   }
 
   if (hasFatalError) {
     return (
-      <AdminShell>
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
-            <p className="text-sm text-muted-foreground">
-              Monitor bot usage, content health, and student engagement.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              Unable to load dashboard data right now.
-            </CardContent>
-          </Card>
-        </div>
-      </AdminShell>
+      <AdminErrorState
+        title="Dashboard"
+        description="Monitor bot usage, content health, and student engagement."
+        message="Unable to load dashboard data right now."
+        action={
+          <AdminRetryButton
+            onClick={() => {
+              void analyticsQuery.refetch();
+              void staffQuery.refetch();
+              void questionsQuery.refetch();
+              void reportsQuery.refetch();
+            }}
+            isPending={
+              analyticsQuery.isFetching ||
+              staffQuery.isFetching ||
+              questionsQuery.isFetching ||
+              reportsQuery.isFetching
+            }
+          />
+        }
+      />
     );
   }
 

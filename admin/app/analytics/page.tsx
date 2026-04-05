@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import { fetchAnalyticsSummary, type AnalyticsSummaryResponse } from "@/lib/api";
 
 const trendIcons = {
@@ -57,22 +58,6 @@ function phaseDot(phase: string) {
   return <span className={`inline-block size-2 rounded-full ${colors[phase] ?? colors.cold_start}`} />;
 }
 
-function AnalyticsLoadingState() {
-  return (
-    <AdminShell>
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Analytics</h2>
-          <p className="text-sm text-muted-foreground">
-            Telegram bot usage and student performance data.
-          </p>
-        </div>
-        <p className="text-sm text-muted-foreground">Loading analytics...</p>
-      </div>
-    </AdminShell>
-  );
-}
-
 export default function AnalyticsPage() {
   const router = useRouter();
   const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
@@ -82,26 +67,30 @@ export default function AnalyticsPage() {
   });
 
   if (analyticsQuery.isLoading && !analyticsQuery.data) {
-    return <AnalyticsLoadingState />;
+    return (
+      <AdminLoadingState
+        title="Analytics"
+        description="Telegram bot usage and student performance data."
+        message="Loading analytics..."
+      />
+    );
   }
 
   if (analyticsQuery.isError || !analyticsQuery.data) {
     return (
-      <AdminShell>
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Analytics</h2>
-            <p className="text-sm text-muted-foreground">
-              Telegram bot usage and student performance data.
-            </p>
-          </div>
-          <Card>
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              Unable to load analytics right now.
-            </CardContent>
-          </Card>
-        </div>
-      </AdminShell>
+      <AdminErrorState
+        title="Analytics"
+        description="Telegram bot usage and student performance data."
+        message="Unable to load analytics right now."
+        action={
+          <AdminRetryButton
+            onClick={() => {
+              void analyticsQuery.refetch();
+            }}
+            isPending={analyticsQuery.isFetching}
+          />
+        }
+      />
     );
   }
 

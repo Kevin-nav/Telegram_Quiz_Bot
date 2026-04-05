@@ -39,6 +39,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 
 import { AdminShell } from "@/components/admin-shell";
+import { AdminErrorState, AdminLoadingState, AdminRetryButton } from "@/components/admin-page-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,16 +119,6 @@ const tooltipStyle = {
   fontSize: "12px",
 };
 
-function StudentLoadingState() {
-  return (
-    <AdminShell>
-      <div className="flex flex-col items-center justify-center py-20">
-        <p className="text-muted-foreground">Loading student analytics...</p>
-      </div>
-    </AdminShell>
-  );
-}
-
 export default function StudentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -153,45 +144,65 @@ export default function StudentDetailPage() {
   }, [data?.profile]);
 
   if (studentQuery.isLoading && !data) {
-    return <StudentLoadingState />;
+    return (
+      <AdminLoadingState
+        title="Student analytics"
+        description="Detailed learner performance, activity, and retention."
+        message="Loading student analytics..."
+      />
+    );
   }
 
   if (!hasValidUserId) {
     return (
-      <AdminShell>
-        <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-muted-foreground">Invalid student id.</p>
-          <Button variant="ghost" className="mt-4" onClick={() => router.push("/analytics")}>
+      <AdminErrorState
+        title="Student analytics"
+        description="Detailed learner performance, activity, and retention."
+        message="The requested student id is invalid."
+        action={
+          <Button variant="ghost" onClick={() => router.push("/analytics")}>
             <ArrowLeft className="mr-2 size-4" /> Back to Analytics
           </Button>
-        </div>
-      </AdminShell>
+        }
+      />
     );
   }
 
   if (studentQuery.isError) {
     return (
-      <AdminShell>
-        <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-muted-foreground">Unable to load student analytics right now.</p>
-          <Button variant="ghost" className="mt-4" onClick={() => studentQuery.refetch()}>
-            Try Again
-          </Button>
-        </div>
-      </AdminShell>
+      <AdminErrorState
+        title="Student analytics"
+        description="Detailed learner performance, activity, and retention."
+        message="Unable to load student analytics right now."
+        action={
+          <div className="flex flex-wrap justify-center gap-2">
+            <AdminRetryButton
+              onClick={() => {
+                void studentQuery.refetch();
+              }}
+              isPending={studentQuery.isFetching}
+            />
+            <Button variant="ghost" onClick={() => router.push("/analytics")}>
+              <ArrowLeft className="mr-2 size-4" /> Back to Analytics
+            </Button>
+          </div>
+        }
+      />
     );
   }
 
   if (!data) {
     return (
-      <AdminShell>
-        <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-muted-foreground">Student not found.</p>
-          <Button variant="ghost" className="mt-4" onClick={() => router.push("/analytics")}>
+      <AdminErrorState
+        title="Student analytics"
+        description="Detailed learner performance, activity, and retention."
+        message="Student not found in the current workspace."
+        action={
+          <Button variant="ghost" onClick={() => router.push("/analytics")}>
             <ArrowLeft className="mr-2 size-4" /> Back to Analytics
           </Button>
-        </div>
-      </AdminShell>
+        }
+      />
     );
   }
 
