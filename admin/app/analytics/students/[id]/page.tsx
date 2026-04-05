@@ -132,11 +132,12 @@ export default function StudentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const userId = Number(params.id);
+  const hasValidUserId = Number.isFinite(userId);
 
   const studentQuery = useQuery<StudentDetailResponse>({
     queryKey: ["analytics", "students", userId],
     queryFn: () => fetchStudentAnalytics(userId),
-    enabled: Number.isFinite(userId),
+    enabled: hasValidUserId,
     retry: false,
   });
 
@@ -155,7 +156,33 @@ export default function StudentDetailPage() {
     return <StudentLoadingState />;
   }
 
-  if (studentQuery.isError || !data) {
+  if (!hasValidUserId) {
+    return (
+      <AdminShell>
+        <div className="flex flex-col items-center justify-center py-20">
+          <p className="text-muted-foreground">Invalid student id.</p>
+          <Button variant="ghost" className="mt-4" onClick={() => router.push("/analytics")}>
+            <ArrowLeft className="mr-2 size-4" /> Back to Analytics
+          </Button>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (studentQuery.isError) {
+    return (
+      <AdminShell>
+        <div className="flex flex-col items-center justify-center py-20">
+          <p className="text-muted-foreground">Unable to load student analytics right now.</p>
+          <Button variant="ghost" className="mt-4" onClick={() => studentQuery.refetch()}>
+            Try Again
+          </Button>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (!data) {
     return (
       <AdminShell>
         <div className="flex flex-col items-center justify-center py-20">

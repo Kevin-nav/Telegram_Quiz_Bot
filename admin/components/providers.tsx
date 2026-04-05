@@ -13,6 +13,17 @@ export function Providers({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 60 * 1000,
             refetchOnWindowFocus: false,
+            refetchOnReconnect: true,
+            throwOnError: false,
+            retry: (failureCount, error) => {
+              if (error instanceof Error && /\b(401|403)\b/.test(error.message)) {
+                return false;
+              }
+              return failureCount < 1;
+            },
+          },
+          mutations: {
+            retry: false,
           },
         },
       }),

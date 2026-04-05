@@ -14,7 +14,6 @@ import {
   Inbox,
   LogOut,
   ShieldCheck,
-  Loader2,
   ChevronsUpDown,
 } from "lucide-react";
 
@@ -45,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { FullscreenLoadingState } from "@/components/app-fallbacks";
 import { CommandPalette } from "@/components/command-palette";
 import { BotWorkspaceSwitcher } from "@/components/bot-workspace-switcher";
 import { fetchAdminPrincipal, logoutAdmin } from "@/lib/api";
@@ -86,6 +86,8 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
     retry: false,
   });
   const principal = principalQuery.data ?? null;
+  const mustRedirectToPassword =
+    principal?.must_change_password === true && safePathname !== "/set-password";
 
   useEffect(() => {
     if (principalQuery.isError) {
@@ -93,10 +95,10 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
       return;
     }
 
-    if (principal?.must_change_password && safePathname !== "/set-password") {
+    if (mustRedirectToPassword) {
       router.replace("/set-password");
     }
-  }, [safePathname, principal, principalQuery.isError, router]);
+  }, [mustRedirectToPassword, principalQuery.isError, router]);
 
   async function handleLogout() {
     try {
@@ -113,9 +115,28 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
 
   if (!principal && principalQuery.isLoading) {
     return (
-      <div className="flex min-h-svh items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
+      <FullscreenLoadingState
+        title="Loading admin workspace..."
+        description="Checking your session and workspace permissions."
+      />
+    );
+  }
+
+  if (!principal && principalQuery.isError) {
+    return (
+      <FullscreenLoadingState
+        title="Redirecting to sign in..."
+        description="Your session could not be restored for this page."
+      />
+    );
+  }
+
+  if (mustRedirectToPassword) {
+    return (
+      <FullscreenLoadingState
+        title="Password update required"
+        description="Redirecting you to set a new password before continuing."
+      />
     );
   }
 
