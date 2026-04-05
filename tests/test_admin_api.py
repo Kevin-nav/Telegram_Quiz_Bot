@@ -1243,6 +1243,15 @@ async def test_admin_questions_list_filters_by_active_bot_catalog_scope(
         question_repository=fake_question_repo,
         audit_log_repository=FakeAuditRepo(),
     )
+    
+    async def mock_load_course_names(course_ids):
+        return {cid: cid.title() for cid in course_ids}
+        
+    monkeypatch.setattr(
+        question_service,
+        "_load_course_names",
+        mock_load_course_names,
+    )
 
     monkeypatch.setattr(
         admin_auth,
