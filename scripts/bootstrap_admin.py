@@ -17,7 +17,7 @@ from src.domains.admin.staff_service import AdminStaffService
 from src.infra.db.models.permission import Permission
 from src.infra.db.models.staff_role import StaffRole
 from src.infra.db.models.staff_role_permission import StaffRolePermission
-from src.infra.db.session import AsyncSessionLocal
+from src.infra.db.session import AsyncSessionLocal, engine
 
 
 log = logging.getLogger(__name__)
@@ -176,21 +176,24 @@ async def async_main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     temporary_password = args.temporary_password or secrets.token_urlsafe(12)
-    payload = await bootstrap_admin(
-        args.email,
-        args.display_name,
-        temporary_password,
-        tuple(args.bot_access),
-    )
-    log.info(
-        "Admin ready: staff_user_id=%s email=%s roles=%s bot_access=%s temporary_password=%s",
-        payload.get("staff_user_id"),
-        payload.get("email"),
-        payload.get("role_codes"),
-        payload.get("bot_access"),
-        temporary_password,
-    )
-    return 0
+    try:
+        payload = await bootstrap_admin(
+            args.email,
+            args.display_name,
+            temporary_password,
+            tuple(args.bot_access),
+        )
+        log.info(
+            "Admin ready: staff_user_id=%s email=%s roles=%s bot_access=%s temporary_password=%s",
+            payload.get("staff_user_id"),
+            payload.get("email"),
+            payload.get("role_codes"),
+            payload.get("bot_access"),
+            temporary_password,
+        )
+        return 0
+    finally:
+        await engine.dispose()
 
 
 def main(argv: list[str] | None = None) -> int:

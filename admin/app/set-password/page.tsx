@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { ShieldCheck, Loader2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import { fetchAdminPrincipal, setAdminPassword } from "@/lib/api";
 
 export default function SetPasswordPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const principalQuery = useQuery({
     queryKey: ["admin-principal"],
     queryFn: fetchAdminPrincipal,
@@ -51,7 +52,8 @@ export default function SetPasswordPage() {
 
     setIsSubmitting(true);
     try {
-      await setAdminPassword(currentPassword, newPassword);
+      const updatedPrincipal = await setAdminPassword(currentPassword, newPassword);
+      queryClient.setQueryData(["admin-principal"], updatedPrincipal);
       router.replace("/");
       router.refresh();
     } catch {
