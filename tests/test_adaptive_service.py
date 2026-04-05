@@ -56,11 +56,24 @@ class FakeStudentCourseStateRepository:
         self.state = state or FakeStudentCourseStateRecord()
         self.update_calls = []
 
-    async def get_or_create(self, user_id: int, course_id: str):
+    async def get_or_create(
+        self,
+        user_id: int,
+        course_id: str,
+        *,
+        bot_id: str | None = None,
+    ):
         return self.state
 
-    async def update_fields(self, user_id: int, course_id: str, **updates):
-        self.update_calls.append((user_id, course_id, updates))
+    async def update_fields(
+        self,
+        user_id: int,
+        course_id: str,
+        *,
+        bot_id: str | None = None,
+        **updates,
+    ):
+        self.update_calls.append((user_id, course_id, bot_id, updates))
         for key, value in updates.items():
             setattr(self.state, key, value)
         return self.state
@@ -77,9 +90,15 @@ class FakeQuestionAttemptRepository:
         self.attempts_by_question_id = attempts_by_question_id or {}
         self.calls = []
 
-    async def list_attempts_for_questions(self, *, user_id: int, question_ids):
+    async def list_attempts_for_questions(
+        self,
+        *,
+        user_id: int,
+        question_ids,
+        bot_id: str | None = None,
+    ):
         question_ids = tuple(question_ids)
-        self.calls.append((user_id, question_ids))
+        self.calls.append((user_id, question_ids, bot_id))
         return {
             question_id: list(self.attempts_by_question_id.get(question_id, ()))
             for question_id in question_ids
@@ -99,9 +118,9 @@ class FakeStudentQuestionSrsRepository:
         self.records = records or {}
         self.calls = []
 
-    async def get_many(self, user_id: int, question_ids):
+    async def get_many(self, user_id: int, question_ids, *, bot_id: str | None = None):
         question_ids = tuple(question_ids)
-        self.calls.append((user_id, question_ids))
+        self.calls.append((user_id, question_ids, bot_id))
         return {
             question_id: record
             for question_id, record in self.records.items()
@@ -160,7 +179,7 @@ async def test_adaptive_service_selects_questions_from_batched_inputs():
     assert len(result.selected_questions) == 2
     assert all(question.question_id in {"q1", "q2", "q3"} for question in result.selected_questions)
     assert state_store.snapshots[(42, "calculus")]["overall_skill"] == 2.5
-    assert attempt_repository.calls == [(42, (1, 2, 3))]
+    assert attempt_repository.calls == [(42, (1, 2, 3), None)]
 
 
 @pytest.mark.asyncio
@@ -192,7 +211,7 @@ async def test_adaptive_service_persists_updated_student_state_after_attempt_upd
 
     assert result.classification == "MASTERED"
     assert state_repository.update_calls
-    _, _, updates = state_repository.update_calls[0]
+    _, _, _, updates = state_repository.update_calls[0]
     assert updates["overall_skill"] > 2.5
     assert updates["total_attempts"] == 1
     assert state_store.invalidations == [(42, "calculus")]

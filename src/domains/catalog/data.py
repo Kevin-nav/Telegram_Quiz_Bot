@@ -1,9 +1,9 @@
 """Static academic catalog for the first Telegram UX slice.
 
 The faculty/program hierarchy comes directly from ``docs/academic_structure.md``.
-The repo does not currently contain a first-semester course list, so the active
-``first`` semester course associations temporarily reuse the documented course
-mapping already in the repository until first-semester seed data is added.
+Engineering Level 100 first-semester mappings now use the course slugs that already
+have imported question-bank data, and can be expanded as more ``q_and_a`` folders
+are added.
 """
 
 from collections import defaultdict
@@ -33,6 +33,10 @@ FACULTIES = [
             {
                 "code": "computer-science-and-engineering",
                 "name": "Computer Science and Engineering",
+            },
+            {
+                "code": "robotics-engineering-and-artificial-intelligence",
+                "name": "Robotics Engineering and Artificial Intelligence",
             },
         ],
     },
@@ -85,7 +89,9 @@ FACULTIES = [
             },
             {"code": "geomatics-engineering", "name": "Geomatics Engineering"},
             {"code": "land-administration", "name": "Land Administration"},
+            {"code": "spatial-planning", "name": "Spatial Planning"},
             {"code": "geological-engineering", "name": "Geological Engineering"},
+            {"code": "general-drilling", "name": "General Drilling"},
         ],
     },
     {
@@ -326,6 +332,177 @@ _SEE_200_FIRST_SEMESTER_COURSES = {
     ]
 }
 
+_ENGINEERING_100_FIRST_SEMESTER_COURSES = {
+    "electrical-and-electronics-engineering": [
+        {"code": "applied-electricity", "name": "Applied Electricity"},
+        {"code": "basic-french", "name": "Basic French I"},
+        {"code": "linear-algebra", "name": "Linear Algebra"},
+    ],
+    "mechanical-engineering": [
+        {"code": "applied-electricity", "name": "Applied Electricity"},
+        {"code": "basic-french", "name": "Basic French I"},
+        {"code": "linear-algebra", "name": "Linear Algebra"},
+    ],
+}
+
+_TIMETABLE_PREFIX_PROGRAMS = {
+    "CE": "computer-science-and-engineering",
+    "CH": "chemical-engineering",
+    "CY": "cyber-security",
+    "EC": "economics-and-industrial-organization",
+    "EL": "electrical-and-electronics-engineering",
+    "ES": "environmental-and-safety-engineering",
+    "GD": "general-drilling",
+    "GL": "geological-engineering",
+    "GM": "geomatics-engineering",
+    "IS": "information-systems-and-technology",
+    "LA": "land-administration",
+    "LT": "logistics-and-transport-management",
+    "MA": "mathematics",
+    "MC": "mechanical-engineering",
+    "MN": "mining-engineering",
+    "MR": "minerals-engineering",
+    "NG": "natural-gas",
+    "PE": "petroleum-engineering",
+    "PG": "petroleum-geoscience-engineering",
+    "RB": "robotics-engineering-and-artificial-intelligence",
+    "RN": "renewable-energy-engineering",
+    "RP": "petroleum-refinery-and-petrochemical-engineering",
+    "SD": "statistical-data-science",
+    "SP": "spatial-planning",
+}
+
+_TIMETABLE_IMPORTED_COURSE_OFFERINGS = [
+    (
+        "applied-electricity",
+        "Applied Electricity",
+        "100",
+        [
+            "CE",
+            "CH",
+            "CY",
+            "EL",
+            "ES",
+            "GL",
+            "GM",
+            "IS",
+            "MA",
+            "MC",
+            "MN",
+            "MR",
+            "NG",
+            "PE",
+            "PG",
+            "RB",
+            "RN",
+            "RP",
+        ],
+    ),
+    (
+        "basic-french",
+        "Basic French I",
+        "100",
+        [
+            "CE",
+            "CH",
+            "CY",
+            "EC",
+            "EL",
+            "ES",
+            "GD",
+            "GL",
+            "GM",
+            "IS",
+            "LA",
+            "LT",
+            "MA",
+            "MC",
+            "MN",
+            "MR",
+            "NG",
+            "PE",
+            "PG",
+            "RB",
+            "RN",
+            "RP",
+            "SD",
+            "SP",
+        ],
+    ),
+    (
+        "differential-equations",
+        "Differential Equations",
+        "200",
+        ["CE", "CY", "EL", "IS", "MC", "RN"],
+    ),
+    (
+        "general-psychology",
+        "General Psychology",
+        "200",
+        [
+            "CE",
+            "CH",
+            "CY",
+            "EC",
+            "EL",
+            "ES",
+            "GD",
+            "GL",
+            "GM",
+            "IS",
+            "LA",
+            "LT",
+            "MA",
+            "MC",
+            "MN",
+            "MR",
+            "NG",
+            "PE",
+            "PG",
+            "RN",
+            "RP",
+            "SD",
+            "SP",
+        ],
+    ),
+    (
+        "linear-algebra",
+        "Linear Algebra",
+        "100",
+        [
+            "CE",
+            "CH",
+            "CY",
+            "EL",
+            "ES",
+            "GL",
+            "GM",
+            "IS",
+            "MC",
+            "MN",
+            "MR",
+            "NG",
+            "PE",
+            "PG",
+            "RB",
+            "RN",
+            "RP",
+        ],
+    ),
+    (
+        "programming-in-matlab",
+        "Programming in MATLAB/Simulink",
+        "200",
+        ["EL", "MC"],
+    ),
+    (
+        "thermodynamics",
+        "Thermodynamics",
+        "200",
+        ["EL", "MC", "MN", "RN"],
+    ),
+]
+
 
 def _slugify_course(course_name: str) -> str:
     return (
@@ -339,6 +516,20 @@ def _slugify_course(course_name: str) -> str:
 
 def _build_program_courses():
     grouped = defaultdict(list)
+    seen_by_program = defaultdict(set)
+    overridden_programs = set(_ENGINEERING_100_FIRST_SEMESTER_COURSES)
+
+    def add_course(program_code: str, course: dict) -> None:
+        dedupe_key = (
+            course["code"],
+            course["level_code"],
+            course["semester_code"],
+        )
+        if dedupe_key in seen_by_program[program_code]:
+            return
+        seen_by_program[program_code].add(dedupe_key)
+        grouped[program_code].append(course)
+
     for course_name, program_codes in _DOCUMENTED_COURSE_PROGRAMS:
         course = {
             "code": _slugify_course(course_name),
@@ -347,16 +538,45 @@ def _build_program_courses():
             "semester_code": "first",
         }
         for program_code in program_codes:
-            grouped[program_code].append(course)
+            if program_code in overridden_programs:
+                continue
+            add_course(program_code, course)
+
+    for program_code, courses in _ENGINEERING_100_FIRST_SEMESTER_COURSES.items():
+        for course in courses:
+            add_course(
+                program_code,
+                {
+                    **course,
+                    "level_code": "100",
+                    "semester_code": "first",
+                },
+            )
+
+    for course_code, course_name, level_code, class_prefixes in (
+        _TIMETABLE_IMPORTED_COURSE_OFFERINGS
+    ):
+        course = {
+            "code": course_code,
+            "name": course_name,
+            "level_code": level_code,
+            "semester_code": "first",
+        }
+        for class_prefix in class_prefixes:
+            program_code = _TIMETABLE_PREFIX_PROGRAMS.get(class_prefix)
+            if not program_code:
+                continue
+            add_course(program_code, course)
 
     for program_code, courses in _SEE_200_FIRST_SEMESTER_COURSES.items():
         for course in courses:
-            grouped[program_code].append(
+            add_course(
+                program_code,
                 {
                     **course,
                     "level_code": "200",
                     "semester_code": "first",
-                }
+                },
             )
 
     return {

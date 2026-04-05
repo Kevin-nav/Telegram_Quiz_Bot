@@ -13,6 +13,7 @@ class QuestionReport(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     course_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    bot_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     question_id: Mapped[int | None] = mapped_column(
         BigInteger,
         ForeignKey("question_bank.id", ondelete="SET NULL"),

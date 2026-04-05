@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.bot.handlers.profile_setup import handle_profile_setup_callback
+from src.bot.runtime_config import DEFAULT_BOT_THEMES, BotRuntimeConfig
 
 
 class FakeCatalogService:
@@ -196,3 +197,52 @@ async def test_profile_setup_shows_catalog_unavailable_when_no_faculties_exist()
     await handle_profile_setup_callback(update, context)
 
     assert "catalog is unavailable" in query.calls[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_adarkwa_profile_setup_starts_at_program_and_persists_fixed_engineering_defaults():
+    query = FakeQuery("profile:start:setup")
+    state_store = FakeStateStore()
+    profile_service = FakeProfileService()
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "bot_config": BotRuntimeConfig(
+                    bot_id="adarkwa",
+                    telegram_bot_token="adarkwa-token",
+                    webhook_secret="adarkwa-secret",
+                    webhook_path="/webhook/adarkwa",
+                    allowed_course_codes=(),
+                    theme=DEFAULT_BOT_THEMES["adarkwa"],
+                    profile_setup_start_step="program",
+                    fixed_faculty_code="engineering",
+                    fixed_faculty_name="Faculty Of Engineering",
+                    fixed_level_code="100",
+                    fixed_level_name="Level 100",
+                ),
+                "catalog_service": FakeCatalogService(),
+                "profile_service": profile_service,
+                "state_store": state_store,
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42, first_name="Kevin", full_name="Kevin Doe"),
+    )
+
+    await handle_profile_setup_callback(update, context)
+
+    assert "Choose your program" in query.calls[-1]["text"]
+    assert "Faculty: Faculty Of Engineering" in query.calls[-1]["text"]
+    assert "Level: Level 100" in query.calls[-1]["text"]
+    assert query.calls[-1]["reply_markup"].inline_keyboard[-1][0].text == "Cancel"
+
+    query.data = "profile:program:mechanical-engineering"
+    await handle_profile_setup_callback(update, context)
+
+    assert profile_service.persist_calls[-1]["faculty_code"] == "engineering"
+    assert profile_service.persist_calls[-1]["program_code"] == "mechanical-engineering"
+    assert profile_service.persist_calls[-1]["level_code"] == "100"
+    assert profile_service.persist_calls[-1]["semester_code"] == "first"

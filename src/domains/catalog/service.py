@@ -10,9 +10,15 @@ class CatalogService:
         self,
         repository: CatalogRepository | None = None,
         state_store: InteractiveStateStore | None = None,
+        allowed_course_codes: tuple[str, ...] = (),
+        fixed_faculty_code: str | None = None,
+        fixed_level_code: str | None = None,
     ):
         self.repository = repository or CatalogRepository()
         self.state_store = state_store or InteractiveStateStore(redis_client)
+        self.allowed_course_codes = allowed_course_codes
+        self.fixed_faculty_code = fixed_faculty_code
+        self.fixed_level_code = fixed_level_code
 
     async def get_faculties(self) -> list[dict]:
         cached = await self.state_store.get_catalog_faculties()
@@ -20,7 +26,11 @@ class CatalogService:
             return cached
 
         faculties = await self.repository.list_faculties()
-        payload = [self._to_faculty_dict(faculty) for faculty in faculties]
+        payload = [
+            self._to_faculty_dict(faculty)
+            for faculty in faculties
+            if self._faculty_is_allowed(faculty.code)
+        ]
         await self.state_store.cache_catalog_faculties(payload)
         return payload
 
@@ -30,7 +40,7 @@ class CatalogService:
             return cached
 
         faculty = await self.repository.get_faculty(faculty_code)
-        if faculty is None:
+        if faculty is None or not self._faculty_is_allowed(faculty_code):
             return []
 
         programs = await self.repository.list_programs(faculty_code=faculty_code)
@@ -48,7 +58,11 @@ class CatalogService:
             return []
 
         levels = await self.repository.list_levels()
-        payload = [self._to_level_dict(level) for level in levels]
+        payload = [
+            self._to_level_dict(level)
+            for level in levels
+            if self._level_is_allowed(level.code)
+        ]
         await self.state_store.cache_catalog_levels(program_code, payload)
         return payload
 
@@ -86,6 +100,11 @@ class CatalogService:
         if cached is not None:
             return cached
 
+        if not self._faculty_is_allowed(faculty_code) or not self._level_is_allowed(
+            level_code
+        ):
+            return []
+
         faculty = await self.repository.get_faculty(faculty_code)
         if faculty is None:
             return []
@@ -100,7 +119,11 @@ class CatalogService:
             level_code=level_code,
             semester_code=semester_code,
         )
-        payload = [self._to_course_dict(course, level_code, semester_code) for course in courses]
+        payload = [
+            self._to_course_dict(course, level_code, semester_code)
+            for course in courses
+            if self._course_is_allowed(course.code)
+        ]
         await self.state_store.cache_catalog_courses(
             faculty_code,
             program_code,
@@ -133,3 +156,18 @@ class CatalogService:
             "level_code": level_code,
             "semester_code": semester_code,
         }
+
+    def _course_is_allowed(self, course_code: str | None) -> bool:
+        if not self.allowed_course_codes or not course_code:
+            return True
+        return course_code in self.allowed_course_codes
+
+    def _faculty_is_allowed(self, faculty_code: str | None) -> bool:
+        if not self.fixed_faculty_code or not faculty_code:
+            return True
+        return faculty_code == self.fixed_faculty_code
+
+    def _level_is_allowed(self, level_code: str | None) -> bool:
+        if not self.fixed_level_code or not level_code:
+            return True
+        return level_code == self.fixed_level_code

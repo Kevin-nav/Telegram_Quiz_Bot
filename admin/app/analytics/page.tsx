@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp,
   TrendingDown,
@@ -10,7 +11,9 @@ import {
   Flame,
   Trophy,
   Medal,
+  ChevronRight,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   BarChart,
   Bar,
@@ -23,6 +26,7 @@ import {
   Line,
   Legend,
 } from "recharts";
+
 import { AdminShell } from "@/components/admin-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,21 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
-import {
-  MOCK_KPIS,
-  MOCK_DAILY_USAGE,
-  MOCK_LEADERBOARD,
-  type LeaderboardEntry,
-} from "@/lib/mock-data";
-import { useState } from "react";
+import { fetchAnalyticsSummary, type AnalyticsSummaryResponse } from "@/lib/api";
 
 const trendIcons = {
   up: TrendingUp,
@@ -58,14 +48,64 @@ const trendIcons = {
 
 const kpiIcons = [Users, MessageSquare, Target, Flame];
 
-export default function AnalyticsPage() {
-  const [selectedStudent, setSelectedStudent] = useState<LeaderboardEntry | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+function phaseDot(phase: string) {
+  const colors: Record<string, string> = {
+    cold_start: "bg-blue-500",
+    warm: "bg-amber-500",
+    established: "bg-emerald-500",
+  };
+  return <span className={`inline-block size-2 rounded-full ${colors[phase] ?? colors.cold_start}`} />;
+}
 
-  function handleStudentClick(student: LeaderboardEntry) {
-    setSelectedStudent(student);
-    setSheetOpen(true);
+function AnalyticsLoadingState() {
+  return (
+    <AdminShell>
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Analytics</h2>
+          <p className="text-sm text-muted-foreground">
+            Telegram bot usage and student performance data.
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">Loading analytics...</p>
+      </div>
+    </AdminShell>
+  );
+}
+
+export default function AnalyticsPage() {
+  const router = useRouter();
+  const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
+    queryKey: ["analytics"],
+    queryFn: fetchAnalyticsSummary,
+    retry: false,
+  });
+
+  if (analyticsQuery.isLoading && !analyticsQuery.data) {
+    return <AnalyticsLoadingState />;
   }
+
+  if (analyticsQuery.isError || !analyticsQuery.data) {
+    return (
+      <AdminShell>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Analytics</h2>
+            <p className="text-sm text-muted-foreground">
+              Telegram bot usage and student performance data.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="py-12 text-center text-sm text-muted-foreground">
+              Unable to load analytics right now.
+            </CardContent>
+          </Card>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  const { kpis, daily_usage, leaderboard } = analyticsQuery.data;
 
   return (
     <AdminShell>
@@ -77,11 +117,10 @@ export default function AnalyticsPage() {
           </p>
         </div>
 
-        {/* KPI Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {MOCK_KPIS.map((kpi, i) => {
+          {kpis.map((kpi, i) => {
             const TrendIcon = trendIcons[kpi.trend];
-            const KpiIcon = kpiIcons[i];
+            const KpiIcon = kpiIcons[i] ?? Users;
             return (
               <Card key={kpi.label}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -121,9 +160,7 @@ export default function AnalyticsPage() {
           })}
         </div>
 
-        {/* Charts */}
         <div className="grid gap-4 lg:grid-cols-2">
-          {/* Usage Chart */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Daily Usage</CardTitle>
@@ -132,7 +169,7 @@ export default function AnalyticsPage() {
             <CardContent>
               <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={MOCK_DAILY_USAGE}>
+                  <LineChart data={daily_usage}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="date" className="text-xs" tick={{ fontSize: 12 }} />
                     <YAxis className="text-xs" tick={{ fontSize: 12 }} />
@@ -167,7 +204,6 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
 
-          {/* Questions by Day */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Questions Served</CardTitle>
@@ -176,7 +212,7 @@ export default function AnalyticsPage() {
             <CardContent>
               <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={MOCK_DAILY_USAGE}>
+                  <BarChart data={daily_usage}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="date" className="text-xs" tick={{ fontSize: 12 }} />
                     <YAxis className="text-xs" tick={{ fontSize: 12 }} />
@@ -201,7 +237,6 @@ export default function AnalyticsPage() {
           </Card>
         </div>
 
-        {/* Leaderboard */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -209,7 +244,7 @@ export default function AnalyticsPage() {
               Student Leaderboard
             </CardTitle>
             <CardDescription>
-              Ranked by questions answered, streak, and accuracy
+              Click a student to view their full performance profile
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -220,17 +255,20 @@ export default function AnalyticsPage() {
                     <TableHead className="w-12">#</TableHead>
                     <TableHead>Username</TableHead>
                     <TableHead>Top Course</TableHead>
+                    <TableHead className="text-center">Phase</TableHead>
+                    <TableHead className="text-right">Skill</TableHead>
                     <TableHead className="text-right">Answered</TableHead>
                     <TableHead className="text-right">Streak</TableHead>
                     <TableHead className="text-right">Accuracy</TableHead>
+                    <TableHead className="w-8"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {MOCK_LEADERBOARD.map((entry) => (
+                  {leaderboard.map((entry) => (
                     <TableRow
                       key={entry.rank}
-                      className="cursor-pointer"
-                      onClick={() => handleStudentClick(entry)}
+                      className="cursor-pointer group"
+                      onClick={() => router.push(`/analytics/students/${entry.user_id}`)}
                     >
                       <TableCell>
                         {entry.rank <= 3 ? (
@@ -255,6 +293,17 @@ export default function AnalyticsPage() {
                           {entry.top_course}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {phaseDot(entry.phase)}
+                          <span className="text-xs text-muted-foreground capitalize">
+                            {entry.phase.replace("_", " ")}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        {entry.overall_skill.toFixed(1)}
+                      </TableCell>
                       <TableCell className="text-right font-mono">
                         {entry.questions_answered}
                       </TableCell>
@@ -267,6 +316,9 @@ export default function AnalyticsPage() {
                       <TableCell className="text-right font-mono">
                         {entry.accuracy}%
                       </TableCell>
+                      <TableCell>
+                        <ChevronRight className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -275,54 +327,6 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Student Detail Sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>
-              @{selectedStudent?.telegram_username}
-            </SheetTitle>
-            <SheetDescription>
-              Telegram ID: {selectedStudent?.telegram_id}
-            </SheetDescription>
-          </SheetHeader>
-          {selectedStudent && (
-            <div className="mt-6 space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Questions Answered</p>
-                  <p className="text-xl font-bold">{selectedStudent.questions_answered}</p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Daily Streak</p>
-                  <p className="text-xl font-bold flex items-center gap-1">
-                    <Flame className="size-4 text-orange-500" />
-                    {selectedStudent.daily_streak}
-                  </p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Accuracy</p>
-                  <p className="text-xl font-bold">{selectedStudent.accuracy}%</p>
-                </div>
-                <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Most Active Course</p>
-                  <p className="text-sm font-medium mt-1">{selectedStudent.top_course}</p>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" size="sm" className="flex-1">
-                  Award Student
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1 text-destructive hover:text-destructive">
-                  Flag Student
-                </Button>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
     </AdminShell>
   );
 }

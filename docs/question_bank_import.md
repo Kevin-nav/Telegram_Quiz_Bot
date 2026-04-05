@@ -25,8 +25,9 @@ The importer stores one canonical row per logical question in the question bank,
 
 For LaTeX questions, Postgres also stores:
 
-- four question-image variant records
-- one shared explanation image reference
+- four question-image variant records per bot branding
+- one explanation image reference per bot branding
+- legacy single Tanjah explanation fields for fallback compatibility
 
 ### R2
 
@@ -34,8 +35,12 @@ For `has_latex = true`, the importer renders PNG assets and uploads them to R2 w
 
 - `questions/<course>/<question>/<version>/question_variant_0.png`
 - `questions/<course>/<question>/<version>/explanation.png`
+- `questions/adarkwa/<course>/<question>/<version>/question_variant_0.png`
+- `questions/adarkwa/<course>/<question>/<version>/explanation.png`
 
 The version segment is based on the source checksum, so content changes produce new asset paths.
+
+Tanjah keeps the legacy key layout. Adarkwa assets use the `questions/adarkwa/...` prefix so both brands can coexist for the same canonical question row.
 
 ## Import Command
 
@@ -63,7 +68,7 @@ The importer processes rows independently.
 
 - invalid rows are marked as failed without aborting the rest of the course
 - non-LaTeX questions are validated and stored without asset generation
-- LaTeX questions generate four question-image variants and one explanation image
+- LaTeX questions generate four question-image variants and one explanation image for each configured bot
 - successful rows are marked `ready`
 - LaTeX render or upload failures mark the row `error`
 
@@ -82,6 +87,7 @@ Re-import is intended to be safe and repeatable.
 - source-content changes produce a new checksum and regenerate LaTeX assets
 - non-LaTeX questions do not store duplicated arrangement variants
 - runtime option shuffling for non-LaTeX questions happens during quiz delivery
+- if a question was already imported before Adarkwa branding was configured, rerunning the importer with `ADARKWA_*` env vars fills the missing Adarkwa variants and explanation URL map
 
 ## Runtime Notes
 

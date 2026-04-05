@@ -3,6 +3,7 @@ from src.bot.copy import (
     build_home_message,
     build_welcome_message,
 )
+from src.bot.runtime_config import DEFAULT_BOT_THEMES
 
 
 def test_home_copy_mentions_profile_details():
@@ -31,3 +32,10 @@ def test_help_copy_mentions_primary_actions():
 
     assert "Start Quiz" in message
     assert "Change Course" in message
+
+
+def test_help_copy_uses_bot_specific_home_labels():
+    message = build_help_message(DEFAULT_BOT_THEMES["adarkwa"])
+
+    assert "Start Practice" in message
+    assert "Study Setup" in message

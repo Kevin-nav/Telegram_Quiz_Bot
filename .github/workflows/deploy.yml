@@ -1,4 +1,4 @@
-name: Build and Publish Production Image
+name: Build and Publish Production Images
 
 on:
   push:
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  backend-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -32,8 +32,37 @@ jobs:
       - name: Run test suite
         run: python -m pytest tests -q
 
+  admin-validate:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: admin
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install admin dependencies
+        run: npm ci
+
+      - name: Lint admin frontend
+        run: npm run lint
+
+      - name: Build admin frontend
+        run: npm run build
+
   build-and-publish:
-    needs: test
+    needs:
+      - backend-test
+      - admin-validate
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -50,12 +79,16 @@ jobs:
         run: |
           set -euo pipefail
           owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          image_repo="ghcr.io/${owner_lc}/adarkwa-study-bot"
+          backend_image_repo="ghcr.io/${owner_lc}/adarkwa-study-bot"
+          admin_image_repo="ghcr.io/${owner_lc}/adarkwa-study-bot-admin"
           image_tag="${GITHUB_SHA}"
 
-          echo "image_repo=${image_repo}" >> "${GITHUB_OUTPUT}"
-          echo "sha_image=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
-          echo "latest_image=${image_repo}:latest" >> "${GITHUB_OUTPUT}"
+          echo "backend_image_repo=${backend_image_repo}" >> "${GITHUB_OUTPUT}"
+          echo "backend_sha_image=${backend_image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "backend_latest_image=${backend_image_repo}:latest" >> "${GITHUB_OUTPUT}"
+          echo "admin_image_repo=${admin_image_repo}" >> "${GITHUB_OUTPUT}"
+          echo "admin_sha_image=${admin_image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "admin_latest_image=${admin_image_repo}:latest" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -64,34 +97,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
+      - name: Extract backend Docker metadata
+        id: backend-meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ steps.prep.outputs.image_repo }}
+          images: ${{ steps.prep.outputs.backend_image_repo }}
           tags: |
             type=raw,value=${{ github.sha }}
             type=raw,value=latest
 
-      - name: Build and push Docker image
-        id: build
+      - name: Build and push backend Docker image
+        id: backend-build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.backend-meta.outputs.tags }}
+          labels: ${{ steps.backend-meta.outputs.labels }}
+
+      - name: Extract admin Docker metadata
+        id: admin-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.prep.outputs.admin_image_repo }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=latest
+
+      - name: Build and push admin Docker image
+        id: admin-build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./admin
+          file: ./admin/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.admin-meta.outputs.tags }}
+          labels: ${{ steps.admin-meta.outputs.labels }}
 
       - name: Publish workflow summary
         shell: bash
         run: |
           {
-            echo "## Published production image"
+            echo "## Published production images"
             echo
-            echo "- Repository: \`${{ steps.prep.outputs.image_repo }}\`"
-            echo "- SHA tag: \`${{ steps.prep.outputs.sha_image }}\`"
-            echo "- Tracking tag: \`${{ steps.prep.outputs.latest_image }}\`"
-            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "### Backend"
+            echo "- Repository: \`${{ steps.prep.outputs.backend_image_repo }}\`"
+            echo "- SHA tag: \`${{ steps.prep.outputs.backend_sha_image }}\`"
+            echo "- Tracking tag: \`${{ steps.prep.outputs.backend_latest_image }}\`"
+            echo "- Digest: \`${{ steps.backend-build.outputs.digest }}\`"
+            echo
+            echo "### Admin"
+            echo "- Repository: \`${{ steps.prep.outputs.admin_image_repo }}\`"
+            echo "- SHA tag: \`${{ steps.prep.outputs.admin_sha_image }}\`"
+            echo "- Tracking tag: \`${{ steps.prep.outputs.admin_latest_image }}\`"
+            echo "- Digest: \`${{ steps.admin-build.outputs.digest }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

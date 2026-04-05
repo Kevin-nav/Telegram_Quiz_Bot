@@ -21,6 +21,7 @@ from src.bot.keyboards import (
     build_quiz_length_keyboard,
     build_setup_keyboard,
 )
+from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID, BotRuntimeConfig
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -89,6 +90,18 @@ def _get_performance_service(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> PerformanceService:
     return context.application.bot_data.get("performance_service", PerformanceService())
+
+
+def _get_bot_theme(context: ContextTypes.DEFAULT_TYPE):
+    bot_config = context.application.bot_data.get(BOT_CONFIG_KEY)
+    return getattr(bot_config, "theme", None)
+
+
+def _get_bot_config(context: ContextTypes.DEFAULT_TYPE) -> BotRuntimeConfig | None:
+    bot_config = context.application.bot_data.get(BOT_CONFIG_KEY)
+    if isinstance(bot_config, BotRuntimeConfig):
+        return bot_config
+    return None
 
 
 def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
@@ -165,11 +178,40 @@ def _initial_setup_state() -> dict[str, str | None]:
     }
 
 
+def _initial_setup_state_for_bot(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> dict[str, str | None]:
+    bot_config = _get_bot_config(context)
+    if bot_config is None or bot_config.bot_id == TANJAH_BOT_ID:
+        return _initial_setup_state()
+
+    return {
+        "faculty": bot_config.fixed_faculty_code,
+        "program": None,
+        "level": bot_config.fixed_level_code,
+        "current_step": bot_config.profile_setup_start_step,
+    }
+
+
 def _initial_setup_labels() -> dict[str, str | None]:
     return {
         "faculty_name": None,
         "program_name": None,
         "level_name": None,
+    }
+
+
+def _initial_setup_labels_for_bot(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> dict[str, str | None]:
+    bot_config = _get_bot_config(context)
+    if bot_config is None or bot_config.bot_id == TANJAH_BOT_ID:
+        return _initial_setup_labels()
+
+    return {
+        "faculty_name": bot_config.fixed_faculty_name,
+        "program_name": None,
+        "level_name": bot_config.fixed_level_name,
     }
 
 
@@ -181,15 +223,38 @@ async def _render_home(query, context: ContextTypes.DEFAULT_TYPE, user) -> None:
         has_active_quiz=getattr(user, "has_active_quiz", False),
     )
     await query.edit_message_text(
-        text=build_home_message(profile),
+        text=build_home_message(profile, _get_bot_theme(context)),
         reply_markup=build_home_keyboard(home["buttons"]),
     )
     _remember_active_message(context, query)
 
 
 async def _render_study_settings(query, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data[STATE_KEY] = _initial_setup_state()
-    context.user_data[LABEL_KEY] = _initial_setup_labels()
+    context.user_data[STATE_KEY] = _initial_setup_state_for_bot(context)
+    context.user_data[LABEL_KEY] = _initial_setup_labels_for_bot(context)
+    bot_config = _get_bot_config(context)
+    if bot_config is not None and bot_config.bot_id != TANJAH_BOT_ID:
+        programs = await _catalog_call(
+            context,
+            "get_programs",
+            bot_config.fixed_faculty_code,
+        )
+        await query.edit_message_text(
+            text=(
+                "Study Profile Setup\n\n"
+                f"Faculty: {bot_config.fixed_faculty_name}\n"
+                "Choose your program:"
+            ),
+            reply_markup=build_setup_keyboard(
+                "program",
+                programs,
+                include_back=False,
+                include_cancel=True,
+            ),
+        )
+        _remember_active_message(context, query)
+        return
+
     faculties = await _catalog_call(context, "get_faculties")
     await query.edit_message_text(
         text="Study Profile Setup\n\nChoose your faculty:",
@@ -345,7 +410,7 @@ async def handle_home_callback(
 
         if action == "help":
             await query.edit_message_text(
-                text=build_help_message(),
+                text=build_help_message(_get_bot_theme(context)),
                 reply_markup=build_home_keyboard(
                     _get_home_service(context).build_home(
                         _build_home_profile(user),

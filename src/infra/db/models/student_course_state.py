@@ -8,11 +8,19 @@ from src.infra.db.base import Base
 
 class StudentCourseState(Base):
     __tablename__ = "student_course_state"
-    __table_args__ = (UniqueConstraint("user_id", "course_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "course_id",
+            "bot_id",
+            name="uq_student_course_state_user_course_bot",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     course_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    bot_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     overall_skill: Mapped[float] = mapped_column(
         Float, nullable=False, default=2.5, server_default="2.5"
     )

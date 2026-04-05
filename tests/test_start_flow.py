@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.bot.handlers.start import start_command
+from src.bot.runtime_config import DEFAULT_BOT_THEMES, BotRuntimeConfig
 from src.infra.redis.state_store import UserProfileRecord
 
 
@@ -234,3 +235,52 @@ async def test_start_uses_profile_service_when_cache_is_empty(monkeypatch):
 
     assert "study home" in message.calls[0]["text"].lower()
     assert profile_service.calls == [(42, "Kevin")]
+
+
+@pytest.mark.asyncio
+async def test_start_uses_bot_specific_welcome_copy_and_setup_label(monkeypatch):
+    async def mock_record_analytics_event(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "src.bot.handlers.start.enqueue_record_analytics_event",
+        mock_record_analytics_event,
+    )
+
+    message = FakeMessage()
+    user = SimpleNamespace(
+        id=42,
+        username="kevin",
+        first_name="Kevin",
+        full_name="Kevin Doe",
+    )
+    profile_service = FakeProfileService(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            onboarding_completed=False,
+        )
+    )
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "bot_config": BotRuntimeConfig(
+                    bot_id="adarkwa",
+                    telegram_bot_token="adarkwa-token",
+                    webhook_secret="adarkwa-secret",
+                    webhook_path="/webhook/adarkwa",
+                    allowed_course_codes=("linear-algebra",),
+                    theme=DEFAULT_BOT_THEMES["adarkwa"],
+                ),
+                "state_store": FakeStateStore(),
+                "profile_service": profile_service,
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(effective_user=user, message=message)
+
+    await start_command(update, context)
+
+    assert message.calls[0]["text"].startswith("Welcome to Adarkwa, Kevin.")
+    assert message.calls[0]["reply_markup"].inline_keyboard[0][0].text == "Study Setup"

@@ -10,6 +10,7 @@ from src.bot.copy import (
 from src.bot.keyboards import build_home_keyboard
 from src.bot.handlers.command_utils import (
     build_home_profile,
+    get_bot_theme,
     get_home_service,
     get_profile_service,
     invalidate_quiz_callback_targets,
@@ -33,13 +34,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await invalidate_quiz_callback_targets(context, user_id=update.effective_user.id)
 
     home_service = get_home_service(context)
+    bot_theme = get_bot_theme(context)
     home = home_service.build_home(
         build_home_profile(user),
         has_active_quiz=getattr(user, "has_active_quiz", False),
     )
 
     reply = await update.message.reply_text(
-        text=build_help_message(),
+        text=build_help_message(bot_theme),
         reply_markup=build_home_keyboard(home["buttons"]),
     )
     remember_reply_message(context, reply)

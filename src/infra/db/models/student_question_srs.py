@@ -8,11 +8,19 @@ from src.infra.db.base import Base
 
 class StudentQuestionSrs(Base):
     __tablename__ = "student_question_srs"
-    __table_args__ = (UniqueConstraint("user_id", "question_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "question_id",
+            "bot_id",
+            name="uq_student_question_srs_user_question_bot",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     course_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    bot_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     question_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("question_bank.id", ondelete="CASCADE"), nullable=False, index=True
     )

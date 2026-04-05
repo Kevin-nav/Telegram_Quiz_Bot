@@ -33,6 +33,7 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/react-katex": "^3.0.4",
     "autoprefixer": "^10.4.27",
     "eslint": "^9.24.0",
     "eslint-config-next": "^15.2.0",

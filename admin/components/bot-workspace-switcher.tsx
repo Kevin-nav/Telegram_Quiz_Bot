@@ -54,6 +54,8 @@ export function BotWorkspaceSwitcher({ principal }: BotWorkspaceSwitcherProps) {
         await queryClient.invalidateQueries({ queryKey: ["staff-users"] });
         await queryClient.invalidateQueries({ queryKey: ["catalog-tree"] });
         await queryClient.invalidateQueries({ queryKey: ["questions"] });
+        await queryClient.invalidateQueries({ queryKey: ["analytics"] });
+        await queryClient.invalidateQueries({ queryKey: ["reports"] });
         toast.success(`Switched to ${BOT_LABELS[botId] ?? botId} workspace.`);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Unable to switch workspace.");

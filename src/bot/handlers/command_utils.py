@@ -11,6 +11,7 @@ from src.bot.copy import (
 )
 from src.bot.handlers.home import ACTIVE_INTERACTIVE_MESSAGE_ID_KEY
 from src.bot.keyboards import build_home_keyboard, build_quiz_course_keyboard
+from src.bot.runtime_config import BOT_CONFIG_KEY, BotThemeConfig
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -56,6 +57,13 @@ def get_catalog_service(
     return context.application.bot_data.get(
         "catalog_service", CatalogNavigationService()
     )
+
+
+def get_bot_theme(
+    context: ContextTypes.DEFAULT_TYPE,
+) -> BotThemeConfig | None:
+    bot_config = context.application.bot_data.get(BOT_CONFIG_KEY)
+    return getattr(bot_config, "theme", None)
 
 
 async def maybe_await(value):

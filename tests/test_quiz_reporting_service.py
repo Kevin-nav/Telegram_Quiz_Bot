@@ -57,11 +57,13 @@ def test_build_question_report_payload_uses_current_question_context():
     service = QuizReportingService()
     payload = service.build_report_payload(
         session=_build_session(),
+        bot_id="adarkwa",
         report_scope="question",
         report_reason="image_or_latex_issue",
         report_note="The rendering is cropped.",
     )
 
+    assert payload["bot_id"] == "adarkwa"
     assert payload["question_id"] == 18
     assert payload["question_key"] == "q2"
     assert payload["report_scope"] == "question"
@@ -74,11 +76,13 @@ def test_build_answer_report_payload_uses_last_answered_context():
     service = QuizReportingService()
     payload = service.build_report_payload(
         session=_build_session(),
+        bot_id="tanjah",
         report_scope="answer",
         report_reason="explanation_is_wrong",
         report_note=None,
     )
 
+    assert payload["bot_id"] == "tanjah"
     assert payload["question_id"] == 17
     assert payload["question_key"] == "q1"
     assert payload["question_index"] == 0

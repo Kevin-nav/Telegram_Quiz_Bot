@@ -4,8 +4,10 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from src.bot.copy import build_home_message, build_welcome_message
+from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID
 from src.bot.handlers.command_utils import (
     build_home_profile,
+    get_bot_theme,
     invalidate_quiz_callback_targets,
     remember_reply_message,
 )
@@ -48,6 +50,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     profile_service = _get_profile_service(context)
     home_service = _get_home_service(context)
     state_store = _get_state_store(context)
+    bot_theme = get_bot_theme(context)
     user = await profile_service.load_or_initialize_user(
         telegram_user.id,
         display_name=telegram_user.first_name or telegram_user.full_name,
@@ -56,8 +59,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not getattr(user, "onboarding_completed", False):
         reply = await update.message.reply_text(
-            build_welcome_message(telegram_user.first_name or telegram_user.full_name),
-            reply_markup=build_welcome_keyboard(),
+            build_welcome_message(
+                telegram_user.first_name or telegram_user.full_name,
+                bot_theme,
+            ),
+            reply_markup=build_welcome_keyboard(bot_theme),
         )
     else:
         home = home_service.build_home(
@@ -65,7 +71,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             has_active_quiz=getattr(user, "has_active_quiz", False),
         )
         reply = await update.message.reply_text(
-            build_home_message(build_home_profile(user)),
+            build_home_message(build_home_profile(user), bot_theme),
             reply_markup=build_home_keyboard(home["buttons"]),
         )
     remember_reply_message(context, reply)
@@ -82,10 +88,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         should_track = True
     if should_track:
+        bot_config = context.application.bot_data.get(BOT_CONFIG_KEY)
         scheduler.schedule_coroutine(
             enqueue_record_analytics_event(
                 {
                     "user_id": telegram_user.id,
+                    "bot_id": getattr(bot_config, "bot_id", TANJAH_BOT_ID),
                     "event_type": "User Registered",
                     "metadata": {
                         "username": telegram_user.username,

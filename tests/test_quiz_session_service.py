@@ -120,7 +120,7 @@ class FakeScheduledJob:
 
 
 @pytest.mark.asyncio
-async def test_start_quiz_creates_state_and_sends_first_poll():
+async def test_start_quiz_creates_state_and_sends_first_poll(monkeypatch):
     store = InteractiveStateStore(FakeRedis())
     adaptive_service = FakeAdaptiveLearningService(
         question_rows=[
@@ -172,6 +172,20 @@ async def test_start_quiz_creates_state_and_sends_first_poll():
     )
     bot = FakeBot()
     scheduler = FakeScheduler()
+    generate_jobs: list[FakeScheduledJob] = []
+
+    def fake_enqueue_generate_quiz_session(payload):
+        job = FakeScheduledJob(payload)
+        generate_jobs.append(job)
+        return job
+
+    import src.domains.quiz.service as quiz_service_module
+
+    monkeypatch.setattr(
+        quiz_service_module,
+        "enqueue_generate_quiz_session",
+        fake_enqueue_generate_quiz_session,
+    )
 
     session = await service.start_quiz(
         bot=bot,
@@ -199,6 +213,7 @@ async def test_start_quiz_creates_state_and_sends_first_poll():
     assert not bot.photo_calls
     assert bot.message_calls[0]["text"] == "Question 1 of 2"
     assert bot.poll_calls[0]["question"] == "What is the derivative of x^2?"
+    assert generate_jobs[0].payload["bot_id"] == "tanjah"
 
 
 @pytest.mark.asyncio
@@ -306,6 +321,7 @@ async def test_poll_answer_advances_quiz_without_db_dependency(monkeypatch):
     assert bot.message_calls[3]["text"] == "Not correct? Report this answer if the key or explanation is off."
     assert bot.message_calls[4]["text"] == "Question 2 of 2"
     assert attempt_jobs
+    assert attempt_jobs[0].payload["bot_id"] == "tanjah"
     assert attempt_jobs[0].payload["time_taken_seconds"] is not None
     assert attempt_jobs[0].payload["time_allocated_seconds"] is not None
     assert attempt_jobs[0].payload["metadata"]["scaled_score"] == 2.0
@@ -509,6 +525,189 @@ async def test_latex_question_uses_selected_asset_variant_and_adjusts_correct_op
     else:
         assert session.questions[0].correct_option_id == 0
         assert bot.photo_calls[0]["photo"] == "https://cdn.example.com/logic-q1-v0.png"
+
+
+@pytest.mark.asyncio
+async def test_latex_question_uses_current_bot_asset_variants_and_explanation_url():
+    store = InteractiveStateStore(FakeRedis(), bot_id="adarkwa")
+    adaptive_service = FakeAdaptiveLearningService(
+        question_rows=[
+            SimpleNamespace(
+                id=17,
+                question_key="logic-q1",
+                question_text="Rendered from image",
+                options=["True", "False"],
+                correct_option_text="True",
+                short_explanation="Review the statement.",
+                topic_id="truth-values",
+                scaled_score=1.2,
+                band=1,
+                cognitive_level="Understanding",
+                processing_complexity=1.0,
+                distractor_complexity=1.1,
+                note_reference=1.0,
+                question_type="T/F",
+                option_count=2,
+                has_latex=True,
+                explanation_asset_url="https://cdn.example.com/logic-q1-tanjah-expl.png",
+                explanation_asset_urls_by_bot={
+                    "tanjah": "https://cdn.example.com/logic-q1-tanjah-expl.png",
+                    "adarkwa": "https://cdn.example.com/logic-q1-adarkwa-expl.png",
+                },
+                question_asset_url="https://cdn.example.com/logic-q1-tanjah-v0.png",
+                asset_variants=[
+                    SimpleNamespace(
+                        bot_id="tanjah",
+                        variant_index=0,
+                        option_order=[0, 1],
+                        question_asset_url="https://cdn.example.com/logic-q1-tanjah-v0.png",
+                    ),
+                    SimpleNamespace(
+                        bot_id="adarkwa",
+                        variant_index=0,
+                        option_order=[0, 1],
+                        question_asset_url="https://cdn.example.com/logic-q1-adarkwa-v0.png",
+                    ),
+                    SimpleNamespace(
+                        bot_id="adarkwa",
+                        variant_index=1,
+                        option_order=[1, 0],
+                        question_asset_url="https://cdn.example.com/logic-q1-adarkwa-v1.png",
+                    ),
+                ],
+            ),
+        ]
+    )
+    service = QuizSessionService(
+        state_store=store,
+        adaptive_learning_service=adaptive_service,
+        bot_id="adarkwa",
+    )
+    bot = FakeBot()
+    scheduler = FakeScheduler()
+
+    session = await service.start_quiz(
+        bot=bot,
+        user_id=42,
+        chat_id=99,
+        course_id="logic",
+        course_name="Logic",
+        question_count=1,
+        schedule_background=scheduler,
+    )
+
+    assert session.questions[0].question_asset_url in {
+        "https://cdn.example.com/logic-q1-adarkwa-v0.png",
+        "https://cdn.example.com/logic-q1-adarkwa-v1.png",
+    }
+
+    await service.handle_poll_answer(
+        bot=bot,
+        poll_answer=SimpleNamespace(
+            poll_id="poll-1",
+            option_ids=[session.questions[0].correct_option_id],
+        ),
+        schedule_background=scheduler,
+    )
+
+    assert bot.photo_calls[1]["photo"] == "https://cdn.example.com/logic-q1-adarkwa-expl.png"
+
+
+@pytest.mark.asyncio
+async def test_adarkwa_quiz_jobs_persist_bot_scope(monkeypatch):
+    store = InteractiveStateStore(FakeRedis(), bot_id="adarkwa")
+    adaptive_service = FakeAdaptiveLearningService(
+        question_rows=[
+            SimpleNamespace(
+                id=17,
+                question_key="logic-q1",
+                question_text="Rendered from image",
+                options=["True", "False"],
+                correct_option_text="True",
+                short_explanation="Review the statement.",
+                topic_id="truth-values",
+                scaled_score=1.2,
+                band=1,
+                cognitive_level="Understanding",
+                processing_complexity=1.0,
+                distractor_complexity=1.1,
+                note_reference=1.0,
+                question_type="T/F",
+                option_count=2,
+                has_latex=True,
+                explanation_asset_url="https://cdn.example.com/logic-q1-tanjah-expl.png",
+                explanation_asset_urls_by_bot={
+                    "tanjah": "https://cdn.example.com/logic-q1-tanjah-expl.png",
+                    "adarkwa": "https://cdn.example.com/logic-q1-adarkwa-expl.png",
+                },
+                question_asset_url="https://cdn.example.com/logic-q1-tanjah-v0.png",
+                asset_variants=[
+                    SimpleNamespace(
+                        bot_id="adarkwa",
+                        variant_index=0,
+                        option_order=[0, 1],
+                        question_asset_url="https://cdn.example.com/logic-q1-adarkwa-v0.png",
+                    ),
+                ],
+            ),
+        ]
+    )
+    service = QuizSessionService(
+        state_store=store,
+        adaptive_learning_service=adaptive_service,
+        bot_id="adarkwa",
+    )
+    bot = FakeBot()
+    scheduler = FakeScheduler()
+
+    progress_jobs: list[FakeScheduledJob] = []
+
+    def fake_enqueue_persist_quiz_session_progress(payload):
+        job = FakeScheduledJob(payload)
+        progress_jobs.append(job)
+        return job
+
+    generate_jobs: list[FakeScheduledJob] = []
+
+    def fake_enqueue_generate_quiz_session(payload):
+        job = FakeScheduledJob(payload)
+        generate_jobs.append(job)
+        return job
+
+    import src.domains.quiz.service as quiz_service_module
+
+    monkeypatch.setattr(
+        quiz_service_module,
+        "enqueue_generate_quiz_session",
+        fake_enqueue_generate_quiz_session,
+    )
+    monkeypatch.setattr(
+        quiz_service_module,
+        "enqueue_persist_quiz_session_progress",
+        fake_enqueue_persist_quiz_session_progress,
+    )
+
+    session = await service.start_quiz(
+        bot=bot,
+        user_id=42,
+        chat_id=99,
+        course_id="logic",
+        course_name="Logic",
+        question_count=1,
+        schedule_background=scheduler,
+    )
+
+    await service.handle_poll_answer(
+        bot=bot,
+        poll_answer=SimpleNamespace(
+            poll_id="poll-1",
+            option_ids=[session.questions[0].correct_option_id],
+        ),
+        schedule_background=scheduler,
+    )
+
+    assert generate_jobs[0].payload["bot_id"] == "adarkwa"
+    assert progress_jobs[0].payload["bot_id"] == "adarkwa"
 
 
 @pytest.mark.asyncio

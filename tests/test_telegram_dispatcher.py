@@ -25,3 +25,29 @@ async def test_dispatcher_classifies_non_text_messages_as_background():
     route = dispatcher.classify({"message": {"photo": [{"file_id": "abc"}]}})
 
     assert route == "background"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_passes_bot_id_to_inline_processor(monkeypatch):
+    processed = []
+
+    async def fake_process_telegram_update(runtime, payload, *, bot_id="tanjah"):
+        processed.append((runtime, payload, bot_id))
+
+    monkeypatch.setattr(
+        "src.api.telegram_dispatcher.process_telegram_update",
+        fake_process_telegram_update,
+    )
+
+    runtime = FakeRuntime()
+    dispatcher = TelegramUpdateDispatcher(runtime)
+
+    await dispatcher._process_inline({"message": {"text": "/start"}}, bot_id="adarkwa")
+
+    assert processed == [
+        (
+            runtime,
+            {"message": {"text": "/start"}},
+            "adarkwa",
+        )
+    ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.infra.r2.storage import R2Storage
 
 
@@ -17,10 +18,13 @@ def build_question_asset_key(
     question_key: str,
     version: str,
     asset_name: str,
+    bot_id: str = TANJAH_BOT_ID,
 ) -> str:
+    bot_prefix = [] if bot_id == TANJAH_BOT_ID else [bot_id.strip("/")]
     return "/".join(
         [
             "questions",
+            *bot_prefix,
             course_slug.strip("/"),
             question_key.strip("/"),
             version.strip("/"),
@@ -47,12 +51,14 @@ class QuestionBankAssetService:
         version: str,
         variant_index: int,
         image_bytes: bytes,
+        bot_id: str = TANJAH_BOT_ID,
     ) -> UploadedAsset:
         key = build_question_asset_key(
             course_slug=course_slug,
             question_key=question_key,
             version=version,
             asset_name=f"question_variant_{variant_index}.png",
+            bot_id=bot_id,
         )
         return self._upload_png_if_missing(key, image_bytes)
 
@@ -63,12 +69,14 @@ class QuestionBankAssetService:
         question_key: str,
         version: str,
         image_bytes: bytes,
+        bot_id: str = TANJAH_BOT_ID,
     ) -> UploadedAsset:
         key = build_question_asset_key(
             course_slug=course_slug,
             question_key=question_key,
             version=version,
             asset_name="explanation.png",
+            bot_id=bot_id,
         )
         return self._upload_png_if_missing(key, image_bytes)
 

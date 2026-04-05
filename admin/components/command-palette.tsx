@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   LayoutDashboard,
@@ -21,7 +22,12 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
-import { MOCK_STAFF, MOCK_QUESTIONS, MOCK_CATALOG } from "@/lib/mock-data";
+import {
+  fetchCatalogTree,
+  listQuestions,
+  listStaffUsers,
+  type CatalogNode,
+} from "@/lib/api";
 
 const pages = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
@@ -35,6 +41,24 @@ const pages = [
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+  const staffQuery = useQuery({
+    queryKey: ["staff-users"],
+    queryFn: listStaffUsers,
+    enabled: open,
+    retry: false,
+  });
+  const catalogTreeQuery = useQuery({
+    queryKey: ["catalog-tree"],
+    queryFn: fetchCatalogTree,
+    enabled: open,
+    retry: false,
+  });
+  const questionsQuery = useQuery({
+    queryKey: ["questions"],
+    queryFn: listQuestions,
+    enabled: open,
+    retry: false,
+  });
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -55,18 +79,27 @@ export function CommandPalette() {
     [],
   );
 
-  // Flatten courses from catalog for search
-  const courses: { code: string; name: string }[] = [];
-  function extractCourses(entries: typeof MOCK_CATALOG) {
-    for (const entry of entries) {
-      if (!entry.children || entry.children.length === 0) {
-        courses.push({ code: entry.code, name: entry.name });
-      } else {
-        extractCourses(entry.children);
+  const courses = useMemo(() => {
+    const flattened: { code: string; name: string }[] = [];
+
+    function extractCourses(entries: CatalogNode[]) {
+      for (const entry of entries) {
+        if (entry.kind === "course") {
+          flattened.push({ code: entry.code, name: entry.name });
+          continue;
+        }
+        if (entry.children.length > 0) {
+          extractCourses(entry.children);
+        }
       }
     }
-  }
-  extractCourses(MOCK_CATALOG);
+
+    extractCourses(catalogTreeQuery.data ?? []);
+    return flattened;
+  }, [catalogTreeQuery.data]);
+
+  const staff = staffQuery.data ?? [];
+  const questions = questionsQuery.data ?? [];
 
   return (
     <>
@@ -103,13 +136,13 @@ export function CommandPalette() {
           <CommandSeparator />
 
           <CommandGroup heading="Staff">
-            {MOCK_STAFF.map((staff) => (
+            {staff.map((staff) => (
               <CommandItem
-                key={staff.id}
+                key={staff.staff_user_id}
                 onSelect={() => runCommand(() => router.push("/staff"))}
               >
                 <Users className="mr-2 size-4" />
-                <span>{staff.display_name}</span>
+                <span>{staff.display_name ?? staff.email}</span>
                 <span className="ml-auto text-xs text-muted-foreground">
                   {staff.email}
                 </span>
@@ -137,15 +170,15 @@ export function CommandPalette() {
           <CommandSeparator />
 
           <CommandGroup heading="Questions">
-            {MOCK_QUESTIONS.slice(0, 5).map((q) => (
+            {questions.slice(0, 5).map((q) => (
               <CommandItem
-                key={q.id}
+                key={q.question_key}
                 onSelect={() => runCommand(() => router.push("/questions"))}
               >
                 <FileQuestion className="mr-2 size-4" />
                 <span className="truncate max-w-[300px]">{q.question_text}</span>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {q.course_code}
+                  {q.course_id}
                 </span>
               </CommandItem>
             ))}

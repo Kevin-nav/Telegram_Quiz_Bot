@@ -7,6 +7,8 @@ import logging
 import tempfile
 from pathlib import Path
 
+from src.bot.runtime_config import BotRuntimeConfig
+from src.config import BOT_CONFIGS
 from src.domains.question_bank.asset_service import QuestionBankAssetService
 from src.domains.question_bank.latex_renderer import (
     build_explanation_latex,
@@ -39,6 +41,25 @@ except ImportError:
 
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds
+TELEGRAM_POLL_QUESTION_MAX_LENGTH = 300
+TELEGRAM_POLL_OPTION_MAX_LENGTH = 100
+
+
+def should_promote_to_latex_for_poll_limits(question: ImportedQuestion) -> bool:
+    return (
+        len(question.question_text) > TELEGRAM_POLL_QUESTION_MAX_LENGTH
+        or any(
+            len(option_text) > TELEGRAM_POLL_OPTION_MAX_LENGTH
+            for option_text in question.options
+        )
+    )
+
+
+def promote_to_latex_for_poll_limits(question: ImportedQuestion) -> None:
+    if question.has_latex:
+        return
+    if should_promote_to_latex_for_poll_limits(question):
+        question.has_latex = True
 
 
 async def _retry_async(coro_factory, *, label: str = "operation"):
@@ -70,6 +91,7 @@ class QuestionBankImportService:
         repository: QuestionBankRepository | None = None,
         asset_service: QuestionBankAssetService | None = None,
         *,
+        bot_configs: dict[str, BotRuntimeConfig] | None = None,
         question_renderer=build_question_latex,
         explanation_renderer=build_explanation_latex,
         variant_builder=build_latex_option_variants,
@@ -78,6 +100,7 @@ class QuestionBankImportService:
     ):
         self.repository = repository or QuestionBankRepository()
         self.asset_service = asset_service or QuestionBankAssetService()
+        self.bot_configs = bot_configs or BOT_CONFIGS
         self.question_renderer = question_renderer
         self.explanation_renderer = explanation_renderer
         self.variant_builder = variant_builder
@@ -144,6 +167,8 @@ class QuestionBankImportService:
                 errors=[f"row normalization failed: {exc}"],
             )
 
+        promote_to_latex_for_poll_limits(question)
+
         errors = validate_imported_question(question)
         if errors:
             log.warning("%s Validation failed: %s", progress, errors)
@@ -169,6 +194,7 @@ class QuestionBankImportService:
             existing
             and existing.status == "ready"
             and existing.source_checksum == source_checksum
+            and self._question_has_all_bot_assets(existing)
         ):
             log.info("%s [%s] Already ready — skipping.", progress, question_key)
             return QuestionImportResult(
@@ -196,15 +222,6 @@ class QuestionBankImportService:
 
         try:
             if not question.has_latex:
-                await _retry_async(
-                    lambda: self.repository.update_question_status(
-                        question_key,
-                        status="ready",
-                        source_checksum=source_checksum,
-                        variant_count=0,
-                    ),
-                    label=f"update_status({question_key})",
-                )
                 log.info("%s [%s] Ready (no LaTeX).", progress, question_key)
                 return QuestionImportResult(
                     row_index=row_index,
@@ -222,21 +239,32 @@ class QuestionBankImportService:
             )
 
             log.info("%s [%s] Replacing variant records...", progress, question_key)
-            await _retry_async(
-                lambda: self.repository.replace_asset_variants(
-                    latex_assets["question_id"], latex_assets["variants"]
-                ),
-                label=f"replace_variants({question_key})",
-            )
+            for bot_id, variant_records in latex_assets["variants_by_bot"].items():
+                await _retry_async(
+                    lambda bot_id=bot_id, variant_records=variant_records: (
+                        self.repository.replace_asset_variants(
+                            latex_assets["question_id"],
+                            variant_records,
+                            bot_id=bot_id,
+                        )
+                    ),
+                    label=f"replace_variants({question_key}:{bot_id})",
+                )
             await _retry_async(
                 lambda: self.repository.update_question_status(
                     question_key,
                     status="ready",
                     source_checksum=source_checksum,
                     render_checksum=latex_assets["render_checksum"],
-                    explanation_asset_key=latex_assets["explanation_asset"].key,
-                    explanation_asset_url=latex_assets["explanation_asset"].url,
-                    variant_count=len(latex_assets["variants"]),
+                    explanation_asset_key=latex_assets["explanation_asset_key"],
+                    explanation_asset_url=latex_assets["explanation_asset_url"],
+                    explanation_asset_keys_by_bot=latex_assets[
+                        "explanation_asset_keys_by_bot"
+                    ],
+                    explanation_asset_urls_by_bot=latex_assets[
+                        "explanation_asset_urls_by_bot"
+                    ],
+                    variant_count=latex_assets["variant_count"],
                 ),
                 label=f"update_status({question_key})",
             )
@@ -245,7 +273,7 @@ class QuestionBankImportService:
                 row_index=row_index,
                 question_key=question_key,
                 status="ready",
-                variant_count=len(latex_assets["variants"]),
+                variant_count=latex_assets["variant_count"],
             )
         except Exception as exc:
             log.error("%s [%s] ERRORED: %s", progress, question_key, exc)
@@ -283,47 +311,66 @@ class QuestionBankImportService:
     ) -> dict:
         option_variants = self.variant_builder(question.options)
         order_maps = self.variant_order_builder(question.option_count)
-        variant_records: list[dict] = []
+        variants_by_bot: dict[str, list[dict]] = {}
+        explanation_asset_keys_by_bot: dict[str, str] = {}
+        explanation_asset_urls_by_bot: dict[str, str] = {}
         render_inputs: list[str] = []
 
-        for variant_index, option_variant in enumerate(option_variants):
-            question_latex = self.question_renderer(question.question_text, option_variant)
-            render_inputs.append(question_latex)
-            image_bytes = self._render_latex_bytes(
-                question_latex,
-                suffix=f"question_variant_{variant_index}.png",
+        for bot_id, bot_config in self.bot_configs.items():
+            bot_variant_records: list[dict] = []
+            for variant_index, option_variant in enumerate(option_variants):
+                question_latex = self.question_renderer(
+                    question.question_text,
+                    option_variant,
+                    bot_theme=bot_config.theme,
+                )
+                render_inputs.append(question_latex)
+                image_bytes = self._render_latex_bytes(
+                    question_latex,
+                    suffix=f"{bot_id}_question_variant_{variant_index}.png",
+                )
+                uploaded = self.asset_service.upload_question_variant(
+                    course_slug=course_slug,
+                    question_key=question_key,
+                    version=source_checksum,
+                    variant_index=variant_index,
+                    image_bytes=image_bytes,
+                    bot_id=bot_id,
+                )
+                bot_variant_records.append(
+                    {
+                        "bot_id": bot_id,
+                        "variant_index": variant_index,
+                        "option_order": order_maps[variant_index],
+                        "question_asset_key": uploaded.key,
+                        "question_asset_url": uploaded.url,
+                        "render_checksum": source_checksum,
+                    }
+                )
+            variants_by_bot[bot_id] = bot_variant_records
+
+            explanation_latex = self.explanation_renderer(
+                question.correct_option_text,
+                question.short_explanation,
+                bot_theme=bot_config.theme,
             )
-            uploaded = self.asset_service.upload_question_variant(
+            render_inputs.append(explanation_latex)
+            explanation_bytes = self._render_latex_bytes(
+                explanation_latex,
+                suffix=f"{bot_id}_explanation.png",
+            )
+            explanation_asset = self.asset_service.upload_explanation_image(
                 course_slug=course_slug,
                 question_key=question_key,
                 version=source_checksum,
-                variant_index=variant_index,
-                image_bytes=image_bytes,
+                image_bytes=explanation_bytes,
+                bot_id=bot_id,
             )
-            variant_records.append(
-                {
-                    "variant_index": variant_index,
-                    "option_order": order_maps[variant_index],
-                    "question_asset_key": uploaded.key,
-                    "question_asset_url": uploaded.url,
-                    "render_checksum": source_checksum,
-                }
-            )
+            explanation_asset_keys_by_bot[bot_id] = explanation_asset.key
+            explanation_asset_urls_by_bot[bot_id] = explanation_asset.url
 
-        explanation_latex = self.explanation_renderer(
-            question.correct_option_text,
-            question.short_explanation,
-        )
-        render_inputs.append(explanation_latex)
-        explanation_bytes = self._render_latex_bytes(
-            explanation_latex,
-            suffix="explanation.png",
-        )
-        explanation_asset = self.asset_service.upload_explanation_image(
-            course_slug=course_slug,
-            question_key=question_key,
-            version=source_checksum,
-            image_bytes=explanation_bytes,
+        fallback_bot_id = "tanjah" if "tanjah" in explanation_asset_urls_by_bot else next(
+            iter(explanation_asset_urls_by_bot)
         )
         render_checksum = hashlib.sha256(
             "".join(render_inputs).encode("utf-8")
@@ -331,8 +378,12 @@ class QuestionBankImportService:
 
         return {
             "question_id": question_id,
-            "variants": variant_records,
-            "explanation_asset": explanation_asset,
+            "variants_by_bot": variants_by_bot,
+            "explanation_asset_key": explanation_asset_keys_by_bot[fallback_bot_id],
+            "explanation_asset_url": explanation_asset_urls_by_bot[fallback_bot_id],
+            "explanation_asset_keys_by_bot": explanation_asset_keys_by_bot,
+            "explanation_asset_urls_by_bot": explanation_asset_urls_by_bot,
+            "variant_count": len(option_variants),
             "render_checksum": render_checksum,
         }
 
@@ -343,3 +394,29 @@ class QuestionBankImportService:
             if not success or not output_path.exists():
                 raise ValueError(f"latex render failed for {suffix}")
             return output_path.read_bytes()
+
+    def _question_has_all_bot_assets(self, question) -> bool:
+        if not getattr(question, "has_latex", False):
+            return True
+
+        explanation_urls_by_bot = (
+            getattr(question, "explanation_asset_urls_by_bot", None) or {}
+        )
+        if not isinstance(explanation_urls_by_bot, dict):
+            explanation_urls_by_bot = {}
+
+        asset_variants = list(getattr(question, "asset_variants", ()) or ())
+        bot_ids_with_variants = {
+            getattr(variant, "bot_id", "tanjah")
+            for variant in asset_variants
+        }
+
+        for bot_id in self.bot_configs:
+            if bot_id not in bot_ids_with_variants:
+                return False
+            if not (
+                explanation_urls_by_bot.get(bot_id)
+                or (bot_id == "tanjah" and getattr(question, "explanation_asset_url", None))
+            ):
+                return False
+        return True

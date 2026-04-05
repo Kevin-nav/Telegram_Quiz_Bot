@@ -5,6 +5,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.domains.quiz.models import PollMapRecord, QuizQuestion, QuizSessionState
 from src.infra.redis.keys import (
     active_quiz_key,
@@ -67,14 +68,15 @@ class UserProfileRecord:
 
 
 class InteractiveStateStore:
-    def __init__(self, redis_client):
+    def __init__(self, redis_client, bot_id: str = TANJAH_BOT_ID):
         self.redis_client = redis_client
+        self.bot_id = bot_id
         self._local_cache: dict[str, tuple[float, object]] = {}
         self._catalog_cache_keys: set[str] = set()
 
     async def claim_update(self, update_id: int, ttl_seconds: int = 300) -> bool:
         result = await self.redis_client.set(
-            telegram_update_key(update_id),
+            telegram_update_key(update_id, self.bot_id),
             "1",
             ex=ttl_seconds,
             nx=True,
@@ -112,102 +114,103 @@ class InteractiveStateStore:
         self._local_cache.pop(user_profile_key(user_id), None)
 
     async def get_active_quiz(self, user_id: int) -> str | None:
-        cached = self._get_local(active_quiz_key(user_id))
+        key = active_quiz_key(user_id, self.bot_id)
+        cached = self._get_local(key)
         if cached is not None:
             return cached
 
-        session_id = await self.redis_client.get(active_quiz_key(user_id))
+        session_id = await self.redis_client.get(key)
         if session_id:
-            await self._refresh_expiry(active_quiz_key(user_id), ACTIVE_QUIZ_TTL_SECONDS)
-            self._set_local(
-                active_quiz_key(user_id),
-                session_id,
-                ACTIVE_QUIZ_TTL_SECONDS,
-            )
+            await self._refresh_expiry(key, ACTIVE_QUIZ_TTL_SECONDS)
+            self._set_local(key, session_id, ACTIVE_QUIZ_TTL_SECONDS)
         return session_id
 
     async def set_active_quiz(self, user_id: int, session_id: str) -> None:
+        key = active_quiz_key(user_id, self.bot_id)
         await self.redis_client.set(
-            active_quiz_key(user_id),
+            key,
             session_id,
             ex=ACTIVE_QUIZ_TTL_SECONDS,
         )
-        self._set_local(active_quiz_key(user_id), session_id, ACTIVE_QUIZ_TTL_SECONDS)
+        self._set_local(key, session_id, ACTIVE_QUIZ_TTL_SECONDS)
 
     async def clear_active_quiz(self, user_id: int) -> None:
-        await self._delete_key(active_quiz_key(user_id))
-        self._local_cache.pop(active_quiz_key(user_id), None)
+        key = active_quiz_key(user_id, self.bot_id)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
 
     async def has_active_quiz(self, user_id: int) -> bool:
         return bool(await self.get_active_quiz(user_id))
 
     async def get_quiz_session(self, session_id: str) -> QuizSessionState | None:
-        payload = await self.redis_client.get(quiz_session_key(session_id))
+        key = quiz_session_key(session_id, self.bot_id)
+        payload = await self.redis_client.get(key)
         if not payload:
             return None
 
-        await self._refresh_expiry(quiz_session_key(session_id), QUIZ_SESSION_TTL_SECONDS)
+        await self._refresh_expiry(key, QUIZ_SESSION_TTL_SECONDS)
         return QuizSessionState.from_dict(json.loads(payload))
 
     async def set_quiz_session(self, session: QuizSessionState) -> None:
         await self.redis_client.set(
-            quiz_session_key(session.session_id),
+            quiz_session_key(session.session_id, self.bot_id),
             json.dumps(session.to_dict()),
             ex=QUIZ_SESSION_TTL_SECONDS,
         )
 
     async def set_poll_map(self, poll_map: PollMapRecord) -> None:
         await self.redis_client.set(
-            poll_map_key(poll_map.poll_id),
+            poll_map_key(poll_map.poll_id, self.bot_id),
             json.dumps(poll_map.to_dict()),
             ex=POLL_MAP_TTL_SECONDS,
         )
 
     async def get_poll_map(self, poll_id: str) -> PollMapRecord | None:
-        payload = await self.redis_client.get(poll_map_key(poll_id))
+        key = poll_map_key(poll_id, self.bot_id)
+        payload = await self.redis_client.get(key)
         if not payload:
             return None
 
-        await self._refresh_expiry(poll_map_key(poll_id), POLL_MAP_TTL_SECONDS)
+        await self._refresh_expiry(key, POLL_MAP_TTL_SECONDS)
         return PollMapRecord.from_dict(json.loads(payload))
 
     async def set_report_draft(self, user_id: int, payload: dict) -> None:
         await self.redis_client.set(
-            report_draft_key(user_id),
+            report_draft_key(user_id, self.bot_id),
             json.dumps(payload),
             ex=REPORT_DRAFT_TTL_SECONDS,
         )
 
     async def get_report_draft(self, user_id: int) -> dict | None:
-        payload = await self.redis_client.get(report_draft_key(user_id))
+        key = report_draft_key(user_id, self.bot_id)
+        payload = await self.redis_client.get(key)
         if not payload:
             return None
 
-        await self._refresh_expiry(report_draft_key(user_id), REPORT_DRAFT_TTL_SECONDS)
+        await self._refresh_expiry(key, REPORT_DRAFT_TTL_SECONDS)
         return json.loads(payload)
 
     async def clear_report_draft(self, user_id: int) -> None:
-        await self._delete_key(report_draft_key(user_id))
+        await self._delete_key(report_draft_key(user_id, self.bot_id))
 
     async def set_pending_report_note(self, user_id: int, payload: dict) -> None:
         await self.redis_client.set(
-            pending_report_note_key(user_id),
+            pending_report_note_key(user_id, self.bot_id),
             json.dumps(payload),
             ex=REPORT_DRAFT_TTL_SECONDS,
         )
 
     async def get_pending_report_note(self, user_id: int) -> dict | None:
-        payload = await self.redis_client.get(pending_report_note_key(user_id))
+        key = pending_report_note_key(user_id, self.bot_id)
+        payload = await self.redis_client.get(key)
         if not payload:
             return None
 
-        await self._refresh_expiry(
-            pending_report_note_key(user_id), REPORT_DRAFT_TTL_SECONDS
-        )
+        await self._refresh_expiry(key, REPORT_DRAFT_TTL_SECONDS)
         return json.loads(payload)
 
     async def clear_pending_report_note(self, user_id: int) -> None:
-        await self._delete_key(pending_report_note_key(user_id))
+        await self._delete_key(pending_report_note_key(user_id, self.bot_id))
 
     async def cache_question_bank(
         self, course_id: str, questions: list[QuizQuestion], ttl_seconds: int = 3600
@@ -231,7 +234,7 @@ class InteractiveStateStore:
         return questions
 
     async def get_adaptive_snapshot(self, user_id: int, course_id: str) -> dict | None:
-        key = adaptive_snapshot_key(user_id, course_id)
+        key = adaptive_snapshot_key(user_id, course_id, self.bot_id)
         cached = self._get_local(key)
         if cached is not None:
             return cached
@@ -251,7 +254,7 @@ class InteractiveStateStore:
         snapshot: dict,
         ttl_seconds: int = ADAPTIVE_SNAPSHOT_TTL_SECONDS,
     ) -> None:
-        key = adaptive_snapshot_key(user_id, course_id)
+        key = adaptive_snapshot_key(user_id, course_id, self.bot_id)
         await self.redis_client.set(
             key,
             json.dumps(snapshot),
@@ -260,7 +263,7 @@ class InteractiveStateStore:
         self._set_local(key, snapshot, ttl_seconds)
 
     async def invalidate_adaptive_snapshot(self, user_id: int, course_id: str) -> None:
-        key = adaptive_snapshot_key(user_id, course_id)
+        key = adaptive_snapshot_key(user_id, course_id, self.bot_id)
         await self._delete_key(key)
         self._local_cache.pop(key, None)
 
@@ -385,7 +388,7 @@ class InteractiveStateStore:
         self, user_id: int, event_type: str, ttl_seconds: int = 24 * 60 * 60
     ) -> bool:
         result = await self.redis_client.set(
-            analytics_dedupe_key(user_id, event_type),
+            analytics_dedupe_key(user_id, event_type, self.bot_id),
             "1",
             ex=ttl_seconds,
             nx=True,
@@ -395,7 +398,7 @@ class InteractiveStateStore:
     async def acquire_quiz_lock(self, session_id: str) -> str | None:
         token = str(uuid.uuid4())
         acquired = await self.redis_client.set(
-            quiz_session_lock_key(session_id),
+            quiz_session_lock_key(session_id, self.bot_id),
             token,
             ex=LOCK_TTL_SECONDS,
             nx=True,
@@ -407,7 +410,7 @@ class InteractiveStateStore:
     async def acquire_adaptive_update_lock(self, user_id: int, course_id: str) -> str | None:
         token = str(uuid.uuid4())
         acquired = await self.redis_client.set(
-            adaptive_update_lock_key(user_id, course_id),
+            adaptive_update_lock_key(user_id, course_id, self.bot_id),
             token,
             ex=LOCK_TTL_SECONDS,
             nx=True,
@@ -419,14 +422,14 @@ class InteractiveStateStore:
     async def release_adaptive_update_lock(
         self, user_id: int, course_id: str, token: str
     ) -> None:
-        key = adaptive_update_lock_key(user_id, course_id)
+        key = adaptive_update_lock_key(user_id, course_id, self.bot_id)
         current_token = await self.redis_client.get(key)
         if current_token != token:
             return
         await self._delete_key(key)
 
     async def release_quiz_lock(self, session_id: str, token: str) -> None:
-        key = quiz_session_lock_key(session_id)
+        key = quiz_session_lock_key(session_id, self.bot_id)
         current_token = await self.redis_client.get(key)
         if current_token != token:
             return
@@ -458,7 +461,8 @@ class InteractiveStateStore:
 
     def _catalog_key(self, scope: str, *parts: str) -> str:
         suffix = ":".join(parts)
-        return f"catalog:{scope}" if not suffix else f"catalog:{scope}:{suffix}"
+        base_key = f"catalog:{self.bot_id}:{scope}"
+        return base_key if not suffix else f"{base_key}:{suffix}"
 
     async def _cache_catalog_value(
         self,

@@ -49,6 +49,7 @@ async def test_persisted_attempt_includes_arrangement_hash_or_config_index():
     payload = {
         "session_id": "session-1",
         "user_id": 42,
+        "bot_id": "adarkwa",
         "course_id": "linear-electronics",
         "question_id": "linear-electronics-q1",
         "source_question_id": 17,
@@ -104,21 +105,24 @@ async def test_persisted_attempt_includes_arrangement_hash_or_config_index():
         await persist_quiz_attempt(payload)
 
     persisted_payload = create_attempt.await_args.args[0]
+    assert persisted_payload["bot_id"] == "adarkwa"
     assert persisted_payload["question_id"] == 17
     assert persisted_payload["question_key"] == "linear-electronics-q1"
     assert persisted_payload["arrangement_hash"] == "C-A-D-B"
     assert persisted_payload["config_index"] is None
     assert persisted_payload["attempt_metadata"]["topic_id"] == "op_amp_basics"
     apply_payload = apply_attempt_update.await_args.kwargs
+    assert apply_payload["bot_id"] == "adarkwa"
     assert apply_payload["question"].question_id == "linear-electronics-q1"
     assert apply_payload["question"].scaled_score == 2.0
     assert apply_payload["selected_distractor"] == "C"
-    list_attempts.assert_awaited_once_with(user_id=42, question_id=17)
-    get_srs.assert_awaited_once()
+    list_attempts.assert_awaited_once_with(user_id=42, question_id=17, bot_id="adarkwa")
+    get_srs.assert_awaited_once_with(42, 17, bot_id="adarkwa")
     upsert_payload = upsert_srs.await_args.kwargs
+    assert upsert_payload["bot_id"] == "adarkwa"
     assert upsert_payload["question_id"] == 17
     assert upsert_payload["box"] == 0
-    track_event.assert_awaited_once()
+    assert track_event.await_args.kwargs["bot_id"] == "adarkwa"
 
 
 def test_review_helpers_flag_large_divergence_and_common_distractors():
@@ -153,6 +157,7 @@ async def test_review_worker_functions_persist_open_flags():
     payload = {
         "session_id": "session-1",
         "user_id": 42,
+        "bot_id": "adarkwa",
         "course_id": "linear-electronics",
         "question_id": "linear-electronics-q1",
         "source_question_id": 17,
@@ -204,6 +209,7 @@ async def test_completed_quiz_progress_increments_quiz_counter():
     payload = {
         "session_id": "session-1",
         "user_id": 42,
+        "bot_id": "adarkwa",
         "course_id": "linear-electronics",
         "status": "completed",
         "score": 8,
@@ -222,14 +228,20 @@ async def test_completed_quiz_progress_increments_quiz_counter():
     ):
         await persist_quiz_session_progress(payload)
 
-    increment_counters.assert_awaited_once_with(42, "linear-electronics", quizzes=1)
-    track_event.assert_awaited_once()
+    increment_counters.assert_awaited_once_with(
+        42,
+        "linear-electronics",
+        quizzes=1,
+        bot_id="adarkwa",
+    )
+    assert track_event.await_args.kwargs["bot_id"] == "adarkwa"
 
 
 @pytest.mark.asyncio
 async def test_persist_question_report_creates_row_and_tracks_event():
     payload = {
         "user_id": 42,
+        "bot_id": "adarkwa",
         "session_id": "session-1",
         "course_id": "linear-electronics",
         "question_id": 17,
@@ -254,4 +266,4 @@ async def test_persist_question_report_creates_row_and_tracks_event():
         await persist_question_report(payload)
 
     create_report.assert_awaited_once_with(payload)
-    track_event.assert_awaited_once()
+    assert track_event.await_args.kwargs["bot_id"] == "adarkwa"

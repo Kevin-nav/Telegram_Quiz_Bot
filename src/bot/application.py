@@ -17,7 +17,8 @@ from src.bot.handlers.profile_setup import handle_profile_setup_callback
 from src.bot.handlers.reporting import handle_report_callback, handle_report_note_message
 from src.bot.handlers.quiz import handle_poll_answer
 from src.bot.handlers.start import start_command
-from src.config import TELEGRAM_BOT_TOKEN
+from src.bot.runtime_config import BOT_CONFIG_KEY, BotRuntimeConfig
+from src.config import BOT_CONFIGS, DEFAULT_BOT_CONFIG
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.performance.service import PerformanceService
@@ -70,9 +71,13 @@ async def handle_application_error(
             logger.exception("Failed to send fallback error message to Telegram user.")
 
 
-def get_application() -> Application:
+def get_application(
+    bot_config: BotRuntimeConfig | None = None,
+) -> Application:
     """Create and configure the Telegram application."""
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    bot_config = bot_config or DEFAULT_BOT_CONFIG
+    application = Application.builder().token(bot_config.telegram_bot_token).build()
+    application.bot_data[BOT_CONFIG_KEY] = bot_config
     application.bot_data["catalog_service"] = CatalogNavigationService()
     application.bot_data["profile_service"] = ProfileService()
     application.bot_data["home_service"] = HomeService()
@@ -101,6 +106,15 @@ def get_application() -> Application:
     application.add_handler(PollAnswerHandler(handle_poll_answer))
     application.add_error_handler(handle_application_error)
     return application
+
+
+def get_telegram_applications(
+    bot_configs: dict[str, BotRuntimeConfig] | None = None,
+) -> dict[str, Application]:
+    return {
+        bot_id: get_application(bot_config)
+        for bot_id, bot_config in (bot_configs or BOT_CONFIGS).items()
+    }
 
 
 telegram_app = get_application()

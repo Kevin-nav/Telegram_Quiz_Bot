@@ -2,6 +2,9 @@ from collections.abc import Mapping
 
 
 class HomeService:
+    def __init__(self, button_labels: Mapping[str, str] | None = None):
+        self.button_labels = dict(button_labels or {})
+
     def build_home(
         self,
         profile: Mapping[str, str | bool | None] | None,
@@ -38,21 +41,51 @@ class HomeService:
         include_performance_button: bool,
     ) -> list[list[dict[str, str]]]:
         buttons = [
-            [{"label": "Start Quiz", "callback": "home:start_quiz"}],
+            [
+                {
+                    "label": self._label("start_quiz", "Start Quiz"),
+                    "callback": "home:start_quiz",
+                }
+            ],
         ]
 
         if has_active_quiz:
             buttons.append(
-                [{"label": "Continue Quiz", "callback": "home:continue_quiz"}]
+                [
+                    {
+                        "label": self._label("continue_quiz", "Continue Quiz"),
+                        "callback": "home:continue_quiz",
+                    }
+                ]
             )
 
         if include_performance_button:
-            buttons.append([{"label": "Performance", "callback": "home:performance"}])
+            buttons.append(
+                [
+                    {
+                        "label": self._label("performance", "Performance"),
+                        "callback": "home:performance",
+                    }
+                ]
+            )
 
         buttons.extend(
             [
-                [{"label": "Study Settings", "callback": "home:study_settings"}],
-                [{"label": "Help", "callback": "home:help"}],
+                [
+                    {
+                        "label": self._label("study_settings", "Study Settings"),
+                        "callback": "home:study_settings",
+                    }
+                ],
+                [
+                    {
+                        "label": self._label("help", "Help"),
+                        "callback": "home:help",
+                    }
+                ],
             ]
         )
         return buttons
+
+    def _label(self, key: str, fallback: str) -> str:
+        return self.button_labels.get(key) or fallback

@@ -197,3 +197,99 @@ async def test_report_note_state_round_trip_and_clear():
 
     assert loaded == payload
     assert cleared is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_state_is_bot_scoped_but_profile_cache_is_shared():
+    redis = FakeRedis()
+    tanjah_store = InteractiveStateStore(redis, bot_id="tanjah")
+    adarkwa_store = InteractiveStateStore(redis, bot_id="adarkwa")
+
+    await tanjah_store.set_user_profile(
+        UserProfileRecord(
+            id=42,
+            display_name="Kevin",
+            preferred_course_code="linear-algebra",
+            onboarding_completed=True,
+        )
+    )
+    await tanjah_store.set_active_quiz(42, "tanjah-session")
+    await adarkwa_store.set_active_quiz(42, "adarkwa-session")
+    await tanjah_store.set_report_draft(42, {"bot_id": "tanjah"})
+    await adarkwa_store.set_report_draft(42, {"bot_id": "adarkwa"})
+
+    tanjah_profile = await tanjah_store.get_user_profile(42)
+    adarkwa_profile = await adarkwa_store.get_user_profile(42)
+
+    assert tanjah_profile is not None
+    assert adarkwa_profile is not None
+    assert tanjah_profile.display_name == "Kevin"
+    assert adarkwa_profile.display_name == "Kevin"
+    assert await tanjah_store.get_active_quiz(42) == "tanjah-session"
+    assert await adarkwa_store.get_active_quiz(42) == "adarkwa-session"
+    assert await tanjah_store.get_report_draft(42) == {"bot_id": "tanjah"}
+    assert await adarkwa_store.get_report_draft(42) == {"bot_id": "adarkwa"}
+
+
+@pytest.mark.asyncio
+async def test_adaptive_runtime_helpers_are_bot_scoped():
+    redis = FakeRedis()
+    tanjah_store = InteractiveStateStore(redis, bot_id="tanjah")
+    adarkwa_store = InteractiveStateStore(redis, bot_id="adarkwa")
+
+    await tanjah_store.set_adaptive_snapshot(42, "calculus", {"overall_skill": 2.7})
+    await adarkwa_store.set_adaptive_snapshot(42, "calculus", {"overall_skill": 4.1})
+
+    tanjah_lock = await tanjah_store.acquire_adaptive_update_lock(42, "calculus")
+    adarkwa_lock = await adarkwa_store.acquire_adaptive_update_lock(42, "calculus")
+
+    assert await tanjah_store.get_adaptive_snapshot(42, "calculus") == {"overall_skill": 2.7}
+    assert await adarkwa_store.get_adaptive_snapshot(42, "calculus") == {"overall_skill": 4.1}
+    assert tanjah_lock is not None
+    assert adarkwa_lock is not None
+
+
+@pytest.mark.asyncio
+async def test_analytics_claim_is_bot_scoped():
+    redis = FakeRedis()
+    tanjah_store = InteractiveStateStore(redis, bot_id="tanjah")
+    adarkwa_store = InteractiveStateStore(redis, bot_id="adarkwa")
+
+    assert await tanjah_store.claim_analytics_event(42, "User Registered") is True
+    assert await tanjah_store.claim_analytics_event(42, "User Registered") is False
+    assert await adarkwa_store.claim_analytics_event(42, "User Registered") is True
+    assert await adarkwa_store.claim_analytics_event(42, "User Registered") is False
+
+
+@pytest.mark.asyncio
+async def test_poll_maps_are_bot_scoped():
+    redis = FakeRedis()
+    tanjah_store = InteractiveStateStore(redis, bot_id="tanjah")
+    adarkwa_store = InteractiveStateStore(redis, bot_id="adarkwa")
+
+    await tanjah_store.set_poll_map(
+        PollMapRecord(
+            poll_id="shared-poll",
+            session_id="tanjah-session",
+            question_id="q1",
+            question_index=0,
+            user_id=42,
+        )
+    )
+    await adarkwa_store.set_poll_map(
+        PollMapRecord(
+            poll_id="shared-poll",
+            session_id="adarkwa-session",
+            question_id="q2",
+            question_index=0,
+            user_id=42,
+        )
+    )
+
+    tanjah_poll_map = await tanjah_store.get_poll_map("shared-poll")
+    adarkwa_poll_map = await adarkwa_store.get_poll_map("shared-poll")
+
+    assert tanjah_poll_map is not None
+    assert adarkwa_poll_map is not None
+    assert tanjah_poll_map.session_id == "tanjah-session"
+    assert adarkwa_poll_map.session_id == "adarkwa-session"

@@ -136,6 +136,7 @@ async def handle_report_callback(
         return
 
     reporting_service = _get_reporting_service(context)
+    quiz_service = _get_quiz_session_service(context)
 
     if action == "start":
         await query.edit_message_text(
@@ -148,6 +149,7 @@ async def handle_report_callback(
         reason = parts[3]
         payload = reporting_service.build_report_payload(
             session=session,
+            bot_id=quiz_service.bot_id,
             report_scope=scope,
             report_reason=reason,
             report_note=None,

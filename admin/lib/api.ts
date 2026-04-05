@@ -137,6 +137,145 @@ export type AuditLogEntry = {
   created_at: string;
 };
 
+export type AnalyticsKpi = {
+  label: string;
+  value: string;
+  change: string;
+  trend: "up" | "down" | "flat";
+};
+
+export type AnalyticsDailyUsagePoint = {
+  date: string;
+  users: number;
+  questions: number;
+};
+
+export type AnalyticsLeaderboardEntry = {
+  rank: number;
+  user_id: string;
+  telegram_username: string;
+  telegram_id: string;
+  questions_answered: number;
+  daily_streak: number;
+  accuracy: number;
+  overall_skill: number;
+  phase: "cold_start" | "warm" | "established";
+  top_course: string;
+};
+
+export type AnalyticsSummaryResponse = {
+  kpis: AnalyticsKpi[];
+  daily_usage: AnalyticsDailyUsagePoint[];
+  leaderboard: AnalyticsLeaderboardEntry[];
+};
+
+export type StudentProfile = {
+  user_id: string;
+  display_name: string;
+  telegram_user_id: string;
+  telegram_username: string;
+  faculty_code: string;
+  faculty_name: string;
+  program_code: string;
+  program_name: string;
+  level_code: string;
+  semester_code: string;
+  preferred_course_code: string;
+  onboarding_completed: boolean;
+  created_at: string;
+  last_active_at: string;
+  current_streak: number;
+  longest_streak: number;
+  total_questions_answered: number;
+  total_correct: number;
+  total_quizzes_completed: number;
+  reports_filed: number;
+};
+
+export type StudentCoursePerformance = {
+  course_id: string;
+  course_name: string;
+  overall_skill: number;
+  phase: "cold_start" | "warm" | "established";
+  topic_skills: Record<string, number>;
+  cognitive_profile: Record<string, number>;
+  processing_profile: Record<string, number>;
+  misconception_flags: {
+    topic: string;
+    description: string;
+    severity: "low" | "medium" | "high";
+  }[];
+  total_quizzes_completed: number;
+  total_attempts: number;
+  total_correct: number;
+  avg_time_per_question: number;
+  exam_date: string | null;
+};
+
+export type StudentSrsDistribution = {
+  course_id: string;
+  course_name: string;
+  box_0: number;
+  box_1: number;
+  box_2: number;
+  box_3: number;
+  box_4: number;
+  box_5: number;
+};
+
+export type StudentWeeklyProgressPoint = {
+  week: string;
+  attempts: number;
+  correct: number;
+  accuracy: number;
+  avg_time: number;
+};
+
+export type StudentDailyActivityPoint = {
+  date: string;
+  questions_count: number;
+};
+
+export type StudentRecentAttempt = {
+  question_key: string;
+  course_name: string;
+  is_correct: boolean;
+  time_taken_seconds: number;
+  created_at: string;
+};
+
+export type StudentDetailResponse = {
+  profile: StudentProfile;
+  courses: StudentCoursePerformance[];
+  srs: StudentSrsDistribution[];
+  weekly_progress: StudentWeeklyProgressPoint[];
+  daily_activity: StudentDailyActivityPoint[];
+  recent_attempts: StudentRecentAttempt[];
+  leaderboard_entry?: AnalyticsLeaderboardEntry | null;
+};
+
+export type ReportStatus = "open" | "resolved" | "dismissed";
+
+export type ReportListItem = {
+  id: number;
+  question_id: number;
+  question_key: string;
+  question_text: string;
+  course_name: string;
+  student_username: string;
+  student_reasoning: string;
+  status: ReportStatus;
+  created_at: string;
+};
+
+export type ReportsListResponse = {
+  items: ReportListItem[];
+  count: number;
+  open_count: number;
+};
+
+export type ReportDetailResponse = ReportListItem;
+
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, "");
 }
@@ -424,6 +563,30 @@ export async function listAuditLogs() {
   return normalizeListResponse<AuditLogEntry>(payload);
 }
 
+export async function fetchAnalyticsSummary() {
+  return adminFetch<AnalyticsSummaryResponse>("/admin/analytics");
+}
+
+export async function fetchStudentAnalytics(userId: number) {
+  return adminFetch<StudentDetailResponse>(`/admin/analytics/students/${userId}`);
+}
+
+export async function listReports(status?: ReportStatus) {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
+  return adminFetch<ReportsListResponse>(`/admin/reports${suffix}`);
+}
+
+export async function getReport(reportId: number) {
+  return adminFetch<ReportDetailResponse>(`/admin/reports/${reportId}`);
+}
+
+export async function updateReportStatus(reportId: number, status: "resolved" | "dismissed") {
+  return adminFetch<ReportDetailResponse>(`/admin/reports/${reportId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
 export const adminApi = {
   buildUrl,
   fetch: adminFetch,
@@ -433,10 +596,15 @@ export const adminApi = {
   listAuditLogs,
   listCatalogItems,
   listQuestions,
+  listReports,
   listStaffUsers,
+  fetchAnalyticsSummary,
+  fetchStudentAnalytics,
+  getReport,
   loginAdmin,
   saveCatalogOffering,
   saveQuestion,
+  updateReportStatus,
   saveStaffUser,
   resetStaffPassword,
   selectAdminBot,

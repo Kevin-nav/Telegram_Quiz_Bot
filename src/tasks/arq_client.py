@@ -3,6 +3,7 @@ import logging
 from arq import create_pool
 from arq.connections import RedisSettings
 
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.config import ARQ_QUEUE_NAME, REDIS_URL
 
 
@@ -47,10 +48,20 @@ async def get_arq_pool():
     return arq_pool
 
 
-async def enqueue_telegram_update(update_payload: dict):
+async def enqueue_telegram_update(
+    update_payload: dict,
+    *,
+    bot_id: str = TANJAH_BOT_ID,
+):
     """Enqueue a Telegram update payload for background processing."""
     pool = await get_arq_pool()
-    await pool.enqueue_job("process_telegram_update", update_payload)
+    payload = update_payload
+    if bot_id != TANJAH_BOT_ID:
+        payload = {
+            "bot_id": bot_id,
+            "payload": update_payload,
+        }
+    await pool.enqueue_job("process_telegram_update", payload)
 
 
 async def enqueue_record_analytics_event(payload: dict):

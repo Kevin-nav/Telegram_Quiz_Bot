@@ -31,6 +31,7 @@ class QuizReportingService:
         self,
         *,
         session: QuizSessionState,
+        bot_id: str,
         report_scope: str,
         report_reason: str,
         report_note: str | None,
@@ -40,6 +41,7 @@ class QuizReportingService:
 
         return {
             "user_id": session.user_id,
+            "bot_id": bot_id,
             "session_id": session.session_id,
             "course_id": session.course_id,
             "question_id": question.source_question_id,

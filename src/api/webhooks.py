@@ -5,8 +5,14 @@ from types import SimpleNamespace
 from fastapi import APIRouter, Request, Response, status
 
 from src.app.bootstrap import startup_web_app
-from src.cache import redis_client
 from src.bot import telegram_app
+from src.bot.runtime_config import (
+    ADARKWA_BOT_ID,
+    DEFAULT_BOT_THEMES,
+    TANJAH_BOT_ID,
+    BotRuntimeConfig,
+)
+from src.cache import redis_client
 from src.config import WEBHOOK_SECRET
 from src.core.config import get_settings
 from src.database import engine
@@ -34,12 +40,17 @@ def get_runtime(request: Request):
     )
 
 
-async def claim_telegram_update(redis_conn, payload: dict) -> bool:
+async def claim_telegram_update(
+    redis_conn,
+    payload: dict,
+    *,
+    bot_id: str = TANJAH_BOT_ID,
+) -> bool:
     update_id = payload.get("update_id")
     if update_id is None:
         return True
 
-    store = TelegramUpdateIdempotencyStore(redis_conn)
+    store = TelegramUpdateIdempotencyStore(redis_conn, bot_id=bot_id)
     return await store.claim_update(update_id)
 
 
@@ -48,14 +59,19 @@ def runtime_accepting_webhooks(runtime) -> bool:
 
 
 @router.post("/webhook")
-async def telegram_webhook(request: Request):
+@router.post("/webhook/{bot_id}")
+async def telegram_webhook(request: Request, bot_id: str = TANJAH_BOT_ID):
+    runtime = get_runtime(request)
+    bot_config = resolve_webhook_bot_config(runtime, bot_id)
+    if bot_config is None:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
     secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if WEBHOOK_SECRET and secret_token != WEBHOOK_SECRET:
+    if bot_config.webhook_secret and secret_token != bot_config.webhook_secret:
         logger.warning("Unauthorized webhook request received.")
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
     payload = await request.json()
-    runtime = get_runtime(request)
     if not runtime_accepting_webhooks(runtime):
         await startup_web_app(runtime)
     if not runtime_accepting_webhooks(runtime):
@@ -70,12 +86,20 @@ async def telegram_webhook(request: Request):
 
     try:
         start = time.perf_counter()
-        should_enqueue = await claim_telegram_update(runtime.redis, payload)
+        should_enqueue = await claim_telegram_update(
+            runtime.redis,
+            payload,
+            bot_id=bot_config.bot_id,
+        )
         if not should_enqueue:
             logger.info("Duplicate webhook update suppressed in %.2fms.", (time.perf_counter() - start) * 1000)
             return Response(status_code=status.HTTP_200_OK)
 
-        route = await runtime.dispatcher.dispatch(payload)
+        route = await dispatch_telegram_update(
+            runtime.dispatcher,
+            payload,
+            bot_id=bot_config.bot_id,
+        )
         logger.info(
             "Webhook accepted route=%s latency_ms=%.2f",
             route,
@@ -85,3 +109,30 @@ async def telegram_webhook(request: Request):
     except Exception:
         logger.exception("Error enqueueing webhook update.")
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def resolve_webhook_bot_config(runtime, bot_id: str) -> BotRuntimeConfig | None:
+    bot_configs = getattr(getattr(runtime, "settings", None), "bot_configs", None)
+    if isinstance(bot_configs, dict):
+        return bot_configs.get(bot_id)
+
+    if bot_id not in {TANJAH_BOT_ID, ADARKWA_BOT_ID}:
+        return None
+    if bot_id == ADARKWA_BOT_ID:
+        return None
+
+    return BotRuntimeConfig(
+        bot_id=TANJAH_BOT_ID,
+        telegram_bot_token=None,
+        webhook_secret=WEBHOOK_SECRET,
+        webhook_path="/webhook",
+        allowed_course_codes=(),
+        theme=DEFAULT_BOT_THEMES[TANJAH_BOT_ID],
+    )
+
+
+async def dispatch_telegram_update(dispatcher, payload: dict, *, bot_id: str) -> str:
+    try:
+        return await dispatcher.dispatch(payload, bot_id=bot_id)
+    except TypeError:
+        return await dispatcher.dispatch(payload)

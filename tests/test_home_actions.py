@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.bot.handlers.home import QUIZ_SELECTION_KEY, handle_home_callback
+from src.bot.runtime_config import DEFAULT_BOT_THEMES, BotRuntimeConfig
 from src.domains.quiz.service import NoQuizQuestionsAvailableError
 
 
@@ -22,6 +23,10 @@ class FakeCatalogService:
 
     def get_faculties(self):
         return [{"code": "engineering", "name": "Faculty of Engineering"}]
+
+    def get_programs(self, faculty_code):
+        assert faculty_code == "engineering"
+        return [{"code": "mechanical-engineering", "name": "Mechanical Engineering"}]
 
     def get_courses(self, faculty_code, program_code, level_code, semester_code):
         return list(self.courses)
@@ -288,6 +293,46 @@ async def test_study_settings_opens_faculty_setup():
     await handle_home_callback(update, context)
 
     assert "choose your faculty" in query.calls[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_adarkwa_study_settings_opens_program_setup_with_engineering_prefilled():
+    user = _make_user()
+    query = FakeQuery("home:study_settings")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "bot_config": BotRuntimeConfig(
+                    bot_id="adarkwa",
+                    telegram_bot_token="adarkwa-token",
+                    webhook_secret="adarkwa-secret",
+                    webhook_path="/webhook/adarkwa",
+                    allowed_course_codes=(),
+                    theme=DEFAULT_BOT_THEMES["adarkwa"],
+                    profile_setup_start_step="program",
+                    fixed_faculty_code="engineering",
+                    fixed_faculty_name="Faculty Of Engineering",
+                    fixed_level_code="100",
+                    fixed_level_name="Level 100",
+                ),
+                "profile_service": FakeProfileService(user),
+                "catalog_service": FakeCatalogService(),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert "choose your program" in query.calls[-1]["text"].lower()
+    assert "faculty: faculty of engineering" in query.calls[-1]["text"].lower()
+    keyboard = query.calls[-1]["reply_markup"].inline_keyboard
+    assert keyboard[0][0].callback_data == "profile:program:mechanical-engineering"
+    assert keyboard[-1][0].text == "Cancel"
 
 
 @pytest.mark.asyncio

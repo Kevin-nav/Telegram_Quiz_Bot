@@ -11,6 +11,7 @@ from src.bot.copy import (
     build_question_action_prompt,
     build_quiz_completion_message,
 )
+from src.bot.runtime_config import TANJAH_BOT_ID
 from src.bot.keyboards import (
     build_answer_action_keyboard,
     build_question_action_keyboard,
@@ -45,8 +46,10 @@ class QuizSessionService:
         state_store: InteractiveStateStore | None = None,
         question_bank_repository: QuestionBankRepository | None = None,
         adaptive_learning_service: AdaptiveLearningService | None = None,
+        bot_id: str = TANJAH_BOT_ID,
     ):
         self.state_store = state_store
+        self.bot_id = bot_id
         self.question_bank_repository = question_bank_repository or QuestionBankRepository()
         self.adaptive_learning_service = (
             adaptive_learning_service
@@ -91,6 +94,7 @@ class QuizSessionService:
                 {
                     "session_id": session.session_id,
                     "user_id": user_id,
+                    "bot_id": self.bot_id,
                     "course_id": course_id,
                     "question_count": question_count,
                 }
@@ -197,6 +201,7 @@ class QuizSessionService:
                     {
                         "session_id": session.session_id,
                         "user_id": session.user_id,
+                        "bot_id": self.bot_id,
                         "course_id": session.course_id,
                         "question_id": question.question_id,
                         "source_question_id": question.source_question_id,
@@ -261,6 +266,7 @@ class QuizSessionService:
                         {
                             "session_id": session.session_id,
                             "user_id": session.user_id,
+                            "bot_id": self.bot_id,
                             "course_id": session.course_id,
                             "status": session.status,
                             "score": session.score,
@@ -277,6 +283,7 @@ class QuizSessionService:
                     {
                         "session_id": session.session_id,
                         "user_id": session.user_id,
+                        "bot_id": self.bot_id,
                         "course_id": session.course_id,
                         "status": session.status,
                         "current_index": session.current_index,
@@ -355,6 +362,7 @@ class QuizSessionService:
         try:
             selection = await self.adaptive_learning_service.select_questions(
                 user_id=user_id or 0,
+                bot_id=self.bot_id,
                 course_id=course_id,
                 quiz_length=question_count,
             )
@@ -475,7 +483,7 @@ class QuizSessionService:
             arrangement_hash=arrangement_hash,
             config_index=config_index,
             question_asset_url=question_asset_url,
-            explanation_asset_url=question_row.explanation_asset_url,
+            explanation_asset_url=self._resolve_explanation_asset_url(question_row),
             time_allocated_seconds=self._calculate_time_allocated_seconds(
                 selected_question
             ),
@@ -674,6 +682,7 @@ class QuizSessionService:
                 variant
                 for variant in asset_variants
                 if getattr(variant, "variant_index", None) == config_index
+                and self._variant_matches_current_bot(variant)
             ),
             None,
         )
@@ -686,6 +695,24 @@ class QuizSessionService:
         else:
             correct_option_id = default_correct_option_id
         return getattr(matching_variant, "question_asset_url", None), correct_option_id
+
+    def _resolve_explanation_asset_url(self, question_row) -> str | None:
+        explanation_asset_urls_by_bot = getattr(
+            question_row,
+            "explanation_asset_urls_by_bot",
+            None,
+        )
+        if isinstance(explanation_asset_urls_by_bot, dict):
+            bot_url = explanation_asset_urls_by_bot.get(self.bot_id)
+            if bot_url:
+                return bot_url
+        return getattr(question_row, "explanation_asset_url", None)
+
+    def _variant_matches_current_bot(self, variant) -> bool:
+        variant_bot_id = getattr(variant, "bot_id", None)
+        if variant_bot_id == self.bot_id:
+            return True
+        return variant_bot_id is None and self.bot_id == TANJAH_BOT_ID
 
     def _require_state_store(self) -> None:
         if self.state_store is None:

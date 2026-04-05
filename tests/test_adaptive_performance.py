@@ -38,7 +38,13 @@ class CountingStudentCourseStateRepository:
     def __init__(self):
         self.calls = 0
 
-    async def get_or_create(self, user_id: int, course_id: str):
+    async def get_or_create(
+        self,
+        user_id: int,
+        course_id: str,
+        *,
+        bot_id: str | None = None,
+    ):
         self.calls += 1
         return type(
             "State",
@@ -64,7 +70,7 @@ class CountingStudentQuestionSrsRepository:
     def __init__(self):
         self.calls = 0
 
-    async def get_many(self, user_id: int, question_ids):
+    async def get_many(self, user_id: int, question_ids, *, bot_id: str | None = None):
         self.calls += 1
         return {}
 
@@ -73,7 +79,13 @@ class CountingQuestionAttemptRepository:
     def __init__(self):
         self.calls = 0
 
-    async def list_attempts_for_questions(self, *, user_id: int, question_ids):
+    async def list_attempts_for_questions(
+        self,
+        *,
+        user_id: int,
+        question_ids,
+        bot_id: str | None = None,
+    ):
         self.calls += 1
         return {}
 

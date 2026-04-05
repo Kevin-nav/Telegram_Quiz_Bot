@@ -18,13 +18,13 @@ class TelegramUpdateDispatcher:
         self._semaphore = asyncio.BoundedSemaphore(inline_capacity)
         self._tasks: set[asyncio.Task] = set()
 
-    async def dispatch(self, payload: dict) -> str:
+    async def dispatch(self, payload: dict, *, bot_id: str = "tanjah") -> str:
         route = self.classify(payload)
         if route == "inline":
-            self.schedule_coroutine(self._process_inline(payload))
+            self.schedule_coroutine(self._process_inline(payload, bot_id=bot_id))
             return route
 
-        await enqueue_telegram_update(payload)
+        await enqueue_telegram_update(payload, bot_id=bot_id)
         return route
 
     def classify(self, payload: dict) -> str:
@@ -64,8 +64,8 @@ class TelegramUpdateDispatcher:
         async with self._semaphore:
             await coro
 
-    async def _process_inline(self, payload: dict) -> None:
-        await process_telegram_update(self.runtime, payload)
+    async def _process_inline(self, payload: dict, *, bot_id: str = "tanjah") -> None:
+        await process_telegram_update(self.runtime, payload, bot_id=bot_id)
 
     def _log_task_failure(self, task: asyncio.Task) -> None:
         if task.cancelled():

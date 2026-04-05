@@ -5,6 +5,7 @@ from telegram.ext import ContextTypes
 
 from src.bot.callbacks import parse_callback
 from src.bot.keyboards import build_home_keyboard, build_setup_keyboard
+from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID, BotRuntimeConfig
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -58,28 +59,73 @@ def _get_background_scheduler(context: ContextTypes.DEFAULT_TYPE):
     return context.application.bot_data.get("background_scheduler")
 
 
-def _initial_state() -> dict[str, str | None]:
+def _get_bot_config(context: ContextTypes.DEFAULT_TYPE) -> BotRuntimeConfig | None:
+    bot_config = context.application.bot_data.get(BOT_CONFIG_KEY)
+    if isinstance(bot_config, BotRuntimeConfig):
+        return bot_config
+    return None
+
+
+def _setup_order(context: ContextTypes.DEFAULT_TYPE) -> list[str]:
+    bot_config = _get_bot_config(context)
+    if bot_config is None or bot_config.bot_id == TANJAH_BOT_ID:
+        return list(SETUP_ORDER)
+    return [
+        step
+        for step in SETUP_ORDER
+        if not _step_is_fixed(bot_config, step)
+    ]
+
+
+def _initial_step(context: ContextTypes.DEFAULT_TYPE) -> str:
+    order = _setup_order(context)
+    return order[0] if order else "program"
+
+
+def _step_is_fixed(bot_config: BotRuntimeConfig, step: str) -> bool:
     return {
-        "faculty": None,
+        "faculty": bool(bot_config.fixed_faculty_code),
+        "program": False,
+        "level": bool(bot_config.fixed_level_code),
+    }.get(step, False)
+
+
+def _initial_state(
+    context: ContextTypes.DEFAULT_TYPE | None = None,
+) -> dict[str, str | None]:
+    bot_config = _get_bot_config(context) if context is not None else None
+    return {
+        "faculty": getattr(bot_config, "fixed_faculty_code", None),
         "program": None,
-        "level": None,
-        "current_step": "faculty",
+        "level": getattr(bot_config, "fixed_level_code", None),
+        "current_step": (
+            _initial_step(context) if context is not None else "faculty"
+        ),
     }
 
 
-def _initial_labels() -> dict[str, str | None]:
+def _initial_labels(
+    context: ContextTypes.DEFAULT_TYPE | None = None,
+) -> dict[str, str | None]:
+    bot_config = _get_bot_config(context) if context is not None else None
     return {
-        "faculty_name": None,
+        "faculty_name": getattr(bot_config, "fixed_faculty_name", None),
         "program_name": None,
-        "level_name": None,
+        "level_name": getattr(bot_config, "fixed_level_name", None),
     }
 
 
 def _reset_following_steps(
-    state: dict[str, str | None], labels: dict[str, str | None], step: str
+    state: dict[str, str | None],
+    labels: dict[str, str | None],
+    step: str,
+    *,
+    bot_config: BotRuntimeConfig | None = None,
 ) -> None:
     start_index = SETUP_ORDER.index(step)
     for later_step in SETUP_ORDER[start_index + 1 :]:
+        if bot_config is not None and _step_is_fixed(bot_config, later_step):
+            continue
         state[later_step] = None
         labels[f"{later_step}_name"] = None
 
@@ -184,9 +230,10 @@ async def _reject_stale_callback(query, context: ContextTypes.DEFAULT_TYPE) -> b
 
 
 async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> None:
-    state = context.user_data.setdefault(STATE_KEY, _initial_state())
-    labels = context.user_data.setdefault(LABEL_KEY, _initial_labels())
+    state = context.user_data.setdefault(STATE_KEY, _initial_state(context))
+    labels = context.user_data.setdefault(LABEL_KEY, _initial_labels(context))
     state["current_step"] = step
+    setup_order = _setup_order(context)
 
     options = await _options_for_step(context, state, step)
     if options:
@@ -196,7 +243,7 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
     markup = build_setup_keyboard(
         step,
         options,
-        include_back=step != "faculty",
+        include_back=bool(setup_order) and step != setup_order[0],
         include_cancel=True,
     )
     await _safe_edit_message_text(query, text=text, reply_markup=markup)
@@ -206,8 +253,8 @@ async def _render_step(query, context: ContextTypes.DEFAULT_TYPE, step: str) -> 
 async def _complete_setup(
     query, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    state = context.user_data.get(STATE_KEY, _initial_state())
-    labels = context.user_data.get(LABEL_KEY, _initial_labels())
+    state = context.user_data.get(STATE_KEY, _initial_state(context))
+    labels = context.user_data.get(LABEL_KEY, _initial_labels(context))
     home_service = _get_home_service(context)
     profile_service = _get_profile_service(context)
     state_store = _get_state_store(context)
@@ -260,13 +307,14 @@ async def handle_profile_setup_callback(
         return
 
     action = parts[1]
-    state = context.user_data.setdefault(STATE_KEY, _initial_state())
-    labels = context.user_data.setdefault(LABEL_KEY, _initial_labels())
+    state = context.user_data.setdefault(STATE_KEY, _initial_state(context))
+    labels = context.user_data.setdefault(LABEL_KEY, _initial_labels(context))
+    setup_order = _setup_order(context)
 
     if action == "start":
-        context.user_data[STATE_KEY] = _initial_state()
-        context.user_data[LABEL_KEY] = _initial_labels()
-        await _render_step(query, context, "faculty")
+        context.user_data[STATE_KEY] = _initial_state(context)
+        context.user_data[LABEL_KEY] = _initial_labels(context)
+        await _render_step(query, context, _initial_step(context))
         return
 
     if action == "cancel":
@@ -276,27 +324,32 @@ async def handle_profile_setup_callback(
         return
 
     if action == "back":
-        current_step = state["current_step"] or "faculty"
-        current_index = SETUP_ORDER.index(current_step)
-        previous_step = SETUP_ORDER[max(0, current_index - 1)]
+        current_step = state["current_step"] or _initial_step(context)
+        current_index = setup_order.index(current_step)
+        previous_step = setup_order[max(0, current_index - 1)]
         state[current_step] = None
         labels[f"{current_step}_name"] = None
         await _render_step(query, context, previous_step)
         return
 
-    if len(parts) < 3 or action not in SETUP_ORDER:
+    if len(parts) < 3 or action not in setup_order:
         return
 
     selected_code = parts[2]
     options = await _options_for_step(context, state, action)
     state[action] = selected_code
     labels[f"{action}_name"] = _option_name(options, selected_code)
-    _reset_following_steps(state, labels, action)
+    _reset_following_steps(
+        state,
+        labels,
+        action,
+        bot_config=_get_bot_config(context),
+    )
 
-    current_index = SETUP_ORDER.index(action)
-    if current_index == len(SETUP_ORDER) - 1:
+    current_index = setup_order.index(action)
+    if current_index == len(setup_order) - 1:
         await _complete_setup(query, update, context)
         return
 
-    next_step = SETUP_ORDER[current_index + 1]
+    next_step = setup_order[current_index + 1]
     await _render_step(query, context, next_step)

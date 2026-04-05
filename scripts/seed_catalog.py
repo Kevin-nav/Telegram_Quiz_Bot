@@ -3,6 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from pathlib import Path
+
+# Allow running from the repo root so src.* imports resolve.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select
 
@@ -56,6 +60,40 @@ async def upsert_offering(session, payload: dict) -> None:
         setattr(record, key, value)
 
 
+async def delete_stale_offerings(session, offerings: list[dict]) -> None:
+    valid_sections = {
+        (
+            offering["program_code"],
+            offering["level_code"],
+            offering["semester_code"],
+        )
+        for offering in offerings
+    }
+    valid_keys = {
+        (
+            offering["program_code"],
+            offering["level_code"],
+            offering["semester_code"],
+            offering["course_code"],
+        )
+        for offering in offerings
+    }
+
+    existing_offerings = (
+        await session.scalars(select(ProgramCourseOffering))
+    ).all()
+    for record in existing_offerings:
+        section = (record.program_code, record.level_code, record.semester_code)
+        key = (
+            record.program_code,
+            record.level_code,
+            record.semester_code,
+            record.course_code,
+        )
+        if section in valid_sections and key not in valid_keys:
+            await session.delete(record)
+
+
 async def async_main() -> int:
     payload = build_catalog_seed_payload()
 
@@ -70,6 +108,7 @@ async def async_main() -> int:
             await upsert_by_code(session, CatalogCourse, course)
         for program in payload["programs"]:
             await upsert_by_code(session, CatalogProgram, program)
+        await delete_stale_offerings(session, payload["offerings"])
         for offering in payload["offerings"]:
             await upsert_offering(session, offering)
 

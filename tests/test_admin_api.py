@@ -258,6 +258,125 @@ class FakeCatalogRepo:
             next_id = max(next_id, offering.id + 1)
         self.next_id = next_id
 
+    async def list_offerings(
+        self,
+        *,
+        faculty_code: str | None = None,
+        program_code: str | None = None,
+        level_code: str | None = None,
+        semester_code: str | None = None,
+        course_code: str | None = None,
+    ):
+        _ = faculty_code
+        results = list(self.offerings.values())
+        if program_code is not None:
+            results = [item for item in results if item.program_code == program_code]
+        if level_code is not None:
+            results = [item for item in results if item.level_code == level_code]
+        if semester_code is not None:
+            results = [item for item in results if item.semester_code == semester_code]
+        if course_code is not None:
+            results = [item for item in results if item.course_code == course_code]
+        return results
+
+    async def upsert_offering(self, payload: dict):
+        key = (
+            payload["program_code"],
+            payload["level_code"],
+            payload["semester_code"],
+            payload["course_code"],
+        )
+        offering = self.offerings.get(key)
+        if offering is None:
+            offering = SimpleNamespace(
+                id=self.next_id,
+                program_code=payload["program_code"],
+                level_code=payload["level_code"],
+                semester_code=payload["semester_code"],
+                course_code=payload["course_code"],
+                is_active=payload.get("is_active", True),
+            )
+            self.offerings[key] = offering
+            self.next_id += 1
+        else:
+            offering.is_active = payload.get("is_active", offering.is_active)
+        return offering
+
+
+class FakeScopeService:
+    def __init__(self, course_codes=None):
+        self.course_codes = course_codes
+        self.principals = []
+
+    async def resolve_course_codes_for_principal(self, principal):
+        self.principals.append(principal)
+        return self.course_codes
+
+    def resolve_active_bot_id(self, principal):
+        return getattr(principal, "active_bot_id", None)
+
+
+class FakeAnalyticsService:
+    def __init__(self, summary_payload=None, student_payload=None):
+        self.summary_payload = summary_payload or {
+            "kpis": [],
+            "daily_usage": [],
+            "leaderboard": [],
+        }
+        self.student_payload = student_payload
+        self.summary_course_codes = None
+        self.summary_active_bot_id = None
+        self.student_calls = []
+
+    async def get_summary(self, *, active_bot_id=None, course_codes=None):
+        self.summary_active_bot_id = active_bot_id
+        self.summary_course_codes = course_codes
+        return self.summary_payload
+
+    async def get_student_detail(self, user_id: int, *, active_bot_id=None, course_codes=None):
+        self.student_calls.append((user_id, active_bot_id, course_codes))
+        return self.student_payload
+
+
+class FakeReportService:
+    def __init__(self, list_payload=None, report_payload=None, update_payload=None):
+        self.list_payload = list_payload or {"items": [], "count": 0, "open_count": 0}
+        self.report_payload = report_payload
+        self.update_payload = update_payload
+        self.list_calls = []
+        self.get_calls = []
+        self.update_calls = []
+
+    async def list_reports(
+        self,
+        *,
+        active_bot_id=None,
+        course_codes=None,
+        status=None,
+        limit=100,
+        offset=0,
+    ):
+        self.list_calls.append((active_bot_id, course_codes, status, limit, offset))
+        return self.list_payload
+
+    async def get_report(self, report_id: int, *, active_bot_id=None, course_codes=None):
+        self.get_calls.append((report_id, active_bot_id, course_codes))
+        return self.report_payload
+
+    async def update_report_status(
+        self,
+        report_id: int,
+        *,
+        status: str,
+        actor_staff_user_id: int | None = None,
+        active_bot_id=None,
+        course_codes=None,
+    ):
+        self.update_calls.append(
+            (report_id, status, actor_staff_user_id, active_bot_id, course_codes)
+        )
+        return self.update_payload
+
     async def list_offerings(self, **filters):
         items = list(self.offerings.values())
         for field, value in filters.items():
@@ -782,6 +901,277 @@ async def test_admin_catalog_allows_view_permission(async_client, monkeypatch):
     assert response.status_code == 200
     assert response.json()["kind"] == "faculties"
     assert response.json()["items"][0]["code"] == "engineering"
+
+
+@pytest.mark.asyncio
+async def test_admin_analytics_summary_uses_scope_and_permission(async_client, monkeypatch):
+    import src.api.admin_analytics as admin_analytics
+    import src.api.admin_auth as admin_auth
+
+    analytics_service = FakeAnalyticsService(
+        summary_payload={
+            "kpis": [{"label": "Active Users (7d)", "value": "12", "change": "+20.0%", "trend": "up"}],
+            "daily_usage": [{"date": "Mon", "users": 5, "questions": 20}],
+            "leaderboard": [],
+        }
+    )
+    scope_service = FakeScopeService({"calculus"})
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-301": SimpleNamespace(
+                    staff_user_id=301,
+                    email="analyst@example.com",
+                    display_name="Analyst",
+                    active_bot_id="adarkwa",
+                    role_codes=["analytics_viewer"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({301: {"analytics.view"}}),
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_scope_service",
+        lambda request: scope_service,
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_analytics_service",
+        lambda request: analytics_service,
+    )
+
+    response = await async_client.get(
+        "/admin/analytics",
+        cookies={"admin_session": "session-301"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["kpis"][0]["value"] == "12"
+    assert analytics_service.summary_active_bot_id == "adarkwa"
+    assert analytics_service.summary_course_codes == {"calculus"}
+
+
+@pytest.mark.asyncio
+async def test_admin_analytics_student_detail_returns_404_when_missing(
+    async_client,
+    monkeypatch,
+):
+    import src.api.admin_analytics as admin_analytics
+    import src.api.admin_auth as admin_auth
+
+    analytics_service = FakeAnalyticsService(student_payload=None)
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-302": SimpleNamespace(
+                    staff_user_id=302,
+                    email="analyst@example.com",
+                    display_name="Analyst",
+                    active_bot_id="adarkwa",
+                    role_codes=["analytics_viewer"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({302: {"analytics.view"}}),
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_scope_service",
+        lambda request: FakeScopeService({"calculus"}),
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_analytics_service",
+        lambda request: analytics_service,
+    )
+
+    response = await async_client.get(
+        "/admin/analytics/students/999",
+        cookies={"admin_session": "session-302"},
+    )
+
+    assert response.status_code == 404
+    assert analytics_service.student_calls == [(999, "adarkwa", {"calculus"})]
+
+
+@pytest.mark.asyncio
+async def test_admin_reports_list_requires_audit_permission(async_client, monkeypatch):
+    import src.api.admin_auth as admin_auth
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-401": SimpleNamespace(
+                    staff_user_id=401,
+                    email="viewer@example.com",
+                    display_name="Viewer",
+                    active_bot_id="adarkwa",
+                    role_codes=["viewer"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({401: {"analytics.view"}}),
+    )
+
+    response = await async_client.get(
+        "/admin/reports",
+        cookies={"admin_session": "session-401"},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_reports_list_uses_scope_and_status_filter(async_client, monkeypatch):
+    import src.api.admin_auth as admin_auth
+    import src.api.admin_reports as admin_reports
+
+    report_service = FakeReportService(
+        list_payload={
+            "items": [
+                {
+                    "id": 77,
+                    "question_id": 11,
+                    "question_key": "CALC_001",
+                    "question_text": "Question",
+                    "course_name": "Calculus",
+                    "student_username": "bright_kofi",
+                    "student_reasoning": "Please check this.",
+                    "status": "open",
+                    "created_at": "2026-04-05T00:00:00+00:00",
+                }
+            ],
+            "count": 1,
+            "open_count": 1,
+        }
+    )
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-402": SimpleNamespace(
+                    staff_user_id=402,
+                    email="viewer@example.com",
+                    display_name="Viewer",
+                    active_bot_id="adarkwa",
+                    role_codes=["viewer"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({402: {"audit.view"}}),
+    )
+    monkeypatch.setattr(
+        admin_reports,
+        "get_admin_scope_service",
+        lambda request: FakeScopeService({"calculus"}),
+    )
+    monkeypatch.setattr(
+        admin_reports,
+        "get_admin_report_service",
+        lambda request: report_service,
+    )
+
+    response = await async_client.get(
+        "/admin/reports?status=open",
+        cookies={"admin_session": "session-402"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["open_count"] == 1
+    assert report_service.list_calls == [("adarkwa", {"calculus"}, "open", 100, 0)]
+
+
+@pytest.mark.asyncio
+async def test_admin_report_status_update_uses_questions_edit_permission(
+    async_client,
+    monkeypatch,
+):
+    import src.api.admin_auth as admin_auth
+    import src.api.admin_reports as admin_reports
+
+    report_service = FakeReportService(
+        update_payload={
+            "id": 88,
+            "question_id": 12,
+            "question_key": "CALC_002",
+            "question_text": "Question",
+            "course_name": "Calculus",
+            "student_username": "ama_scholar",
+            "student_reasoning": "Answer looks wrong.",
+            "status": "resolved",
+            "created_at": "2026-04-05T00:00:00+00:00",
+        }
+    )
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-403": SimpleNamespace(
+                    staff_user_id=403,
+                    email="editor@example.com",
+                    display_name="Editor",
+                    active_bot_id="adarkwa",
+                    role_codes=["editor"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({403: {"questions.edit"}}),
+    )
+    monkeypatch.setattr(
+        admin_reports,
+        "get_admin_scope_service",
+        lambda request: FakeScopeService({"calculus"}),
+    )
+    monkeypatch.setattr(
+        admin_reports,
+        "get_admin_report_service",
+        lambda request: report_service,
+    )
+
+    response = await async_client.patch(
+        "/admin/reports/88/status",
+        json={"status": "resolved"},
+        cookies={"admin_session": "session-403"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "resolved"
+    assert report_service.update_calls == [
+        (88, "resolved", 403, "adarkwa", {"calculus"})
+    ]
 
 
 @pytest.mark.asyncio

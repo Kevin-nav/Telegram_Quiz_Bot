@@ -4,9 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.bootstrap import create_app_state, shutdown_web_app, startup_web_app
 from src.api.admin_audit import router as admin_audit_router
+from src.api.admin_analytics import router as admin_analytics_router
 from src.api.admin_auth import router as admin_auth_router
 from src.api.admin_catalog import router as admin_catalog_router
 from src.api.admin_questions import router as admin_questions_router
+from src.api.admin_reports import router as admin_reports_router
 from src.api.admin_staff import router as admin_staff_router
 from src.api.health import router as health_router
 from src.api.webhooks import router as webhook_router
@@ -42,6 +44,8 @@ app.include_router(admin_staff_router)
 app.include_router(admin_catalog_router)
 app.include_router(admin_questions_router)
 app.include_router(admin_audit_router)
+app.include_router(admin_analytics_router)
+app.include_router(admin_reports_router)
 app.include_router(webhook_router)
 app.include_router(health_router)
 

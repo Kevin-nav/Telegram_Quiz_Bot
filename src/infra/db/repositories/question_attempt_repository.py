@@ -24,6 +24,7 @@ class QuestionAttemptRepository:
         *,
         user_id: int,
         question_id: int,
+        bot_id: str | None = None,
         limit: int | None = None,
     ) -> list[QuestionAttempt]:
         async with self.session_factory() as session:
@@ -35,6 +36,8 @@ class QuestionAttemptRepository:
                 )
                 .order_by(QuestionAttempt.created_at.asc(), QuestionAttempt.id.asc())
             )
+            if bot_id is not None:
+                statement = statement.where(QuestionAttempt.bot_id == bot_id)
             if limit is not None:
                 statement = statement.limit(limit)
             result = await session.execute(statement)
@@ -45,13 +48,14 @@ class QuestionAttemptRepository:
         *,
         user_id: int,
         question_ids: Iterable[int],
+        bot_id: str | None = None,
     ) -> dict[int, list[QuestionAttempt]]:
         question_ids = list(question_ids)
         if not question_ids:
             return {}
 
         async with self.session_factory() as session:
-            result = await session.execute(
+            statement = (
                 select(QuestionAttempt)
                 .where(
                     QuestionAttempt.user_id == user_id,
@@ -59,6 +63,9 @@ class QuestionAttemptRepository:
                 )
                 .order_by(QuestionAttempt.created_at.asc(), QuestionAttempt.id.asc())
             )
+            if bot_id is not None:
+                statement = statement.where(QuestionAttempt.bot_id == bot_id)
+            result = await session.execute(statement)
             grouped: dict[int, list[QuestionAttempt]] = defaultdict(list)
             for attempt in result.scalars().all():
                 grouped[attempt.question_id].append(attempt)
@@ -68,6 +75,7 @@ class QuestionAttemptRepository:
         self,
         *,
         user_id: int,
+        bot_id: str | None = None,
         limit: int | None = None,
     ) -> list[QuestionAttempt]:
         async with self.session_factory() as session:
@@ -76,6 +84,8 @@ class QuestionAttemptRepository:
                 .where(QuestionAttempt.user_id == user_id)
                 .order_by(QuestionAttempt.created_at.desc(), QuestionAttempt.id.desc())
             )
+            if bot_id is not None:
+                statement = statement.where(QuestionAttempt.bot_id == bot_id)
             if limit is not None:
                 statement = statement.limit(limit)
             result = await session.execute(statement)

@@ -55,6 +55,7 @@ class AdaptiveLearningService:
         self,
         *,
         user_id: int,
+        bot_id: str | None = None,
         course_id: str,
         quiz_length: int,
         current_session_question_ids: set[str] | None = None,
@@ -65,7 +66,7 @@ class AdaptiveLearningService:
         now: datetime | None = None,
         rng: random.Random | None = None,
     ) -> AdaptiveSelectionOutput:
-        student_state = await self._load_student_state(user_id, course_id)
+        student_state = await self._load_student_state(user_id, course_id, bot_id=bot_id)
         question_rows = await self.question_bank_repository.list_ready_questions(course_id)
         question_profiles = [self._question_row_to_profile(row) for row in question_rows]
         attempts_by_question, recently_correct_at_by_question, attempted_question_ids = (
@@ -75,12 +76,14 @@ class AdaptiveLearningService:
                 attempts_by_question=attempts_by_question,
                 recently_correct_at_by_question=recently_correct_at_by_question,
                 attempted_question_ids=attempted_question_ids,
+                bot_id=bot_id,
             )
         )
         srs_by_question = await self._load_srs_by_question(
             user_id,
             question_rows,
             provided=srs_by_question,
+            bot_id=bot_id,
         )
 
         selected_questions = select_adaptive_questions(
@@ -105,6 +108,7 @@ class AdaptiveLearningService:
         self,
         *,
         user_id: int,
+        bot_id: str | None = None,
         course_id: str,
         question: AdaptiveQuestionProfile,
         is_correct: bool,
@@ -115,7 +119,7 @@ class AdaptiveLearningService:
         processing_target: str | None = None,
         now: datetime | None = None,
     ) -> AdaptiveUpdateResult:
-        student_state = await self._load_student_state(user_id, course_id)
+        student_state = await self._load_student_state(user_id, course_id, bot_id=bot_id)
         result = apply_adaptive_attempt_update(
             student_state,
             question,
@@ -130,6 +134,7 @@ class AdaptiveLearningService:
         await self.student_course_state_repository.update_fields(
             user_id,
             course_id,
+            bot_id=bot_id,
             overall_skill=result.student_state.overall_skill,
             topic_skills=result.student_state.topic_skills,
             cognitive_profile=result.student_state.cognitive_profile,
@@ -143,17 +148,24 @@ class AdaptiveLearningService:
             await self.state_store.invalidate_adaptive_snapshot(user_id, course_id)
         return result
 
-    async def increment_completed_quizzes(self, *, user_id: int, course_id: str) -> None:
+    async def increment_completed_quizzes(
+        self,
+        *,
+        user_id: int,
+        course_id: str,
+        bot_id: str | None = None,
+    ) -> None:
         await self.student_course_state_repository.increment_counters(
             user_id,
             course_id,
+            bot_id=bot_id,
             quizzes=1,
         )
         if self.state_store is not None:
             await self.state_store.invalidate_adaptive_snapshot(user_id, course_id)
 
     async def _load_student_state(
-        self, user_id: int, course_id: str
+        self, user_id: int, course_id: str, *, bot_id: str | None = None
     ) -> AdaptiveStudentState:
         if self.state_store is not None:
             cached_snapshot = await self.state_store.get_adaptive_snapshot(user_id, course_id)
@@ -166,7 +178,11 @@ class AdaptiveLearningService:
                     }
                 )
 
-        state = await self.student_course_state_repository.get_or_create(user_id, course_id)
+        state = await self.student_course_state_repository.get_or_create(
+            user_id,
+            course_id,
+            bot_id=bot_id,
+        )
         snapshot = AdaptiveStudentState(
             overall_skill=state.overall_skill,
             topic_skills=dict(state.topic_skills or {}),
@@ -202,6 +218,7 @@ class AdaptiveLearningService:
         question_rows: Sequence[Any],
         *,
         provided: dict[str, Any] | None = None,
+        bot_id: str | None = None,
     ) -> dict[str, Any]:
         if provided is not None:
             return provided
@@ -217,6 +234,7 @@ class AdaptiveLearningService:
         records = await self.student_question_srs_repository.get_many(
             user_id,
             question_ids_by_key.values(),
+            bot_id=bot_id,
         )
         return {
             question_key: records[question_id]
@@ -232,6 +250,7 @@ class AdaptiveLearningService:
         attempts_by_question: dict[str, Sequence[Any]] | None = None,
         recently_correct_at_by_question: dict[str, datetime] | None = None,
         attempted_question_ids: set[str] | None = None,
+        bot_id: str | None = None,
     ) -> tuple[dict[str, Sequence[Any]], dict[str, datetime], set[str]]:
         if (
             attempts_by_question is not None
@@ -259,6 +278,7 @@ class AdaptiveLearningService:
         attempts_by_row_id = await self.question_attempt_repository.list_attempts_for_questions(
             user_id=user_id,
             question_ids=question_keys_by_id.keys(),
+            bot_id=bot_id,
         )
         loaded_attempts_by_question: dict[str, Sequence[Any]] = {}
         loaded_recently_correct_at_by_question: dict[str, datetime] = {}

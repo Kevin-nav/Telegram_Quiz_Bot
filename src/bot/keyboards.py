@@ -12,17 +12,35 @@ from src.bot.callbacks import (
     quiz_course_callback,
     quiz_length_callback,
 )
+from src.bot.runtime_config import BotThemeConfig
+
+
+def _label(
+    key: str,
+    fallback: str,
+    bot_theme: BotThemeConfig | None = None,
+) -> str:
+    if bot_theme is None:
+        return fallback
+    return bot_theme.button_labels.get(key) or fallback
 
 
 def _button(label: str, callback_data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(label, callback_data=callback_data)
 
 
-def build_welcome_keyboard() -> InlineKeyboardMarkup:
+def build_welcome_keyboard(
+    bot_theme: BotThemeConfig | None = None,
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [_button("Set Up Study Profile", profile_callback("start", "setup"))],
-            [_button("Help", home_callback("help"))],
+            [
+                _button(
+                    _label("study_settings", "Set Up Study Profile", bot_theme),
+                    profile_callback("start", "setup"),
+                )
+            ],
+            [_button(_label("help", "Help", bot_theme), home_callback("help"))],
         ]
     )
 

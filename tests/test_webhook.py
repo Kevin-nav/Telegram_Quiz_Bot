@@ -69,6 +69,71 @@ async def test_webhook_authorized(async_client: AsyncClient, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_webhook_routes_adarkwa_updates_with_adarkwa_secret(
+    async_client: AsyncClient,
+    monkeypatch,
+):
+    dispatched_calls = []
+
+    class FakeDispatcher:
+        async def dispatch(self, payload, *, bot_id="tanjah"):
+            dispatched_calls.append((bot_id, payload))
+            return "inline"
+
+    import src.api.webhooks
+    from src.bot.runtime_config import DEFAULT_BOT_THEMES, BotRuntimeConfig
+
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "get_runtime",
+        lambda request: SimpleNamespace(
+            settings=SimpleNamespace(
+                bot_configs={
+                    "tanjah": BotRuntimeConfig(
+                        bot_id="tanjah",
+                        telegram_bot_token="tanjah-token",
+                        webhook_secret="test-secret",
+                        webhook_path="/webhook/tanjah",
+                        allowed_course_codes=(),
+                        theme=DEFAULT_BOT_THEMES["tanjah"],
+                    ),
+                    "adarkwa": BotRuntimeConfig(
+                        bot_id="adarkwa",
+                        telegram_bot_token="adarkwa-token",
+                        webhook_secret="adarkwa-secret",
+                        webhook_path="/webhook/adarkwa",
+                        allowed_course_codes=("linear-algebra",),
+                        theme=DEFAULT_BOT_THEMES["adarkwa"],
+                    ),
+                }
+            ),
+            redis=FakeRedis(),
+            dispatcher=FakeDispatcher(),
+            telegram_app=SimpleNamespace(bot_data={}),
+        ),
+    )
+
+    payload = {"update_id": 10002, "message": {"text": "/start"}}
+
+    response = await async_client.post(
+        "/webhook/adarkwa",
+        json=payload,
+        headers={"X-Telegram-Bot-Api-Secret-Token": "adarkwa-secret"},
+    )
+
+    assert response.status_code == 200
+    assert dispatched_calls == [("adarkwa", payload)]
+
+    response = await async_client.post(
+        "/webhook/adarkwa",
+        json=payload,
+        headers={"X-Telegram-Bot-Api-Secret-Token": "test-secret"},
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_duplicate_webhook_returns_200_without_enqueue(async_client, monkeypatch):
     dispatch_calls = []
 

@@ -36,6 +36,20 @@ def test_build_question_asset_key_returns_versioned_path():
     assert key == "questions/differential-equations/q-001/abc123/question_variant_0.png"
 
 
+def test_build_question_asset_key_adds_bot_prefix_for_adarkwa_assets():
+    key = build_question_asset_key(
+        course_slug="differential-equations",
+        question_key="q-001",
+        version="abc123",
+        asset_name="question_variant_0.png",
+        bot_id="adarkwa",
+    )
+
+    assert key == (
+        "questions/adarkwa/differential-equations/q-001/abc123/question_variant_0.png"
+    )
+
+
 def test_asset_service_uploads_question_variant_and_returns_key_and_url():
     storage = FakeStorage()
     service = QuestionBankAssetService(storage)

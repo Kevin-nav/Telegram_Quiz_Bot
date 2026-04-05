@@ -12,6 +12,7 @@ from src.bot.keyboards import (
     build_quiz_length_keyboard,
     build_welcome_keyboard,
 )
+from src.bot.runtime_config import DEFAULT_BOT_THEMES
 
 
 def test_profile_course_callback_is_namespaced():
@@ -35,6 +36,13 @@ def test_welcome_keyboard_has_setup_button():
 
     assert keyboard.inline_keyboard[0][0].text == "Set Up Study Profile"
     assert keyboard.inline_keyboard[0][0].callback_data == "profile:start:setup"
+
+
+def test_welcome_keyboard_uses_bot_specific_labels():
+    keyboard = build_welcome_keyboard(DEFAULT_BOT_THEMES["adarkwa"])
+
+    assert keyboard.inline_keyboard[0][0].text == "Study Setup"
+    assert keyboard.inline_keyboard[1][0].text == "Help"
 
 
 def test_quiz_length_keyboard_uses_namespaced_callbacks():

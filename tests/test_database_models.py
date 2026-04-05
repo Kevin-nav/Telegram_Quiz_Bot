@@ -1,18 +1,41 @@
+def test_question_attempt_model_has_expected_columns():
+    from src.infra.db.models.question_attempt import QuestionAttempt
+
+    columns = {column.name for column in QuestionAttempt.__table__.columns}
+
+    assert {
+        "id",
+        "session_id",
+        "user_id",
+        "course_id",
+        "bot_id",
+        "question_id",
+        "question_key",
+        "question_index",
+        "selected_option_ids",
+        "is_correct",
+        "metadata",
+        "created_at",
+    } <= columns
+
+
 def test_analytics_event_model_has_expected_columns():
     from src.infra.db.models.analytics_event import AnalyticsEvent
 
     columns = {column.name for column in AnalyticsEvent.__table__.columns}
 
-    assert {"id", "event_type", "user_id", "metadata", "created_at"} <= columns
+    assert {"id", "event_type", "user_id", "bot_id", "metadata", "created_at"} <= columns
 
 
 def test_adaptive_runtime_models_have_expected_columns():
     from src.infra.db.models.adaptive_review_flag import AdaptiveReviewFlag
     from src.infra.db.models.question_report import QuestionReport
+    from src.infra.db.models.student_course_state import StudentCourseState
     from src.infra.db.models.student_question_srs import StudentQuestionSrs
 
     review_columns = {column.name for column in AdaptiveReviewFlag.__table__.columns}
     question_report_columns = {column.name for column in QuestionReport.__table__.columns}
+    student_course_state_columns = {column.name for column in StudentCourseState.__table__.columns}
     srs_columns = {column.name for column in StudentQuestionSrs.__table__.columns}
 
     assert {"id", "question_id", "flag_type", "reason", "status", "created_at"} <= review_columns
@@ -21,6 +44,7 @@ def test_adaptive_runtime_models_have_expected_columns():
         "user_id",
         "session_id",
         "course_id",
+        "bot_id",
         "question_id",
         "question_key",
         "question_index",
@@ -30,7 +54,14 @@ def test_adaptive_runtime_models_have_expected_columns():
         "metadata",
         "created_at",
     } <= question_report_columns
-    assert {"id", "user_id", "course_id", "question_id", "box", "created_at"} <= srs_columns
+    assert {
+        "id",
+        "user_id",
+        "course_id",
+        "bot_id",
+        "created_at",
+    } <= student_course_state_columns
+    assert {"id", "user_id", "course_id", "bot_id", "question_id", "box", "created_at"} <= srs_columns
 
 
 def test_staff_access_models_have_expected_columns():

@@ -34,6 +34,7 @@ async def record_analytics_event(payload: dict) -> None:
         user_id=payload["user_id"],
         event_type=payload["event_type"],
         metadata=payload.get("metadata"),
+        bot_id=payload.get("bot_id"),
     )
 
 
@@ -100,6 +101,7 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                 {
                     "session_id": payload["session_id"],
                     "user_id": payload["user_id"],
+                    "bot_id": payload.get("bot_id"),
                     "course_id": payload["course_id"],
                     "question_id": source_question_id,
                     "question_key": payload["question_id"],
@@ -135,10 +137,12 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                     await question_attempt_repository.list_attempts_for_question(
                         user_id=payload["user_id"],
                         question_id=source_question_id,
+                        bot_id=payload.get("bot_id"),
                     )
                 )
             await service.apply_attempt_update(
                 user_id=payload["user_id"],
+                bot_id=payload.get("bot_id"),
                 course_id=payload["course_id"],
                 question=AdaptiveQuestionProfile(
                     question_id=payload["question_id"],
@@ -165,6 +169,7 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                 existing_srs = await student_question_srs_repository.get(
                     payload["user_id"],
                     source_question_id,
+                    bot_id=payload.get("bot_id"),
                 )
                 current_box = existing_srs.box if existing_srs is not None else 0
                 next_box = advance_srs_box(current_box, payload["is_correct"])
@@ -177,6 +182,7 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                 now = datetime.now(UTC)
                 await student_question_srs_repository.upsert(
                     user_id=payload["user_id"],
+                    bot_id=payload.get("bot_id"),
                     course_id=payload["course_id"],
                     question_id=source_question_id,
                     box=next_box,
@@ -193,6 +199,7 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
             user_id=payload["user_id"],
             event_type="quiz_attempt_persisted",
             metadata=payload,
+            bot_id=payload.get("bot_id"),
         )
     finally:
         if runtime is not None and lock_token is not None:
@@ -275,6 +282,7 @@ async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
         await student_course_state_repository.increment_counters(
             payload["user_id"],
             payload["course_id"],
+            bot_id=payload.get("bot_id"),
             quizzes=1,
         )
         if runtime is not None:
@@ -286,6 +294,7 @@ async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
         user_id=payload["user_id"],
         event_type="quiz_session_progress_persisted",
         metadata=payload,
+        bot_id=payload.get("bot_id"),
     )
 
 
@@ -296,6 +305,7 @@ async def persist_question_report(payload: dict, runtime=None) -> None:
         user_id=payload["user_id"],
         event_type="question_report_persisted",
         metadata=payload,
+        bot_id=payload.get("bot_id"),
     )
 
 

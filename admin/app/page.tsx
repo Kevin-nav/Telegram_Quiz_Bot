@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp,
   TrendingDown,
@@ -15,7 +16,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AdminShell } from "@/components/admin-shell";
-import { MOCK_KPIS, MOCK_REPORTS, MOCK_LEADERBOARD, MOCK_QUESTIONS, MOCK_STAFF } from "@/lib/mock-data";
+import {
+  fetchAnalyticsSummary,
+  listQuestions,
+  listReports,
+  listStaffUsers,
+  type AnalyticsSummaryResponse,
+  type ReportListItem,
+  type QuestionRecord,
+  type AdminStaffUser,
+} from "@/lib/api";
 
 const trendIcons = {
   up: TrendingUp,
@@ -25,9 +35,88 @@ const trendIcons = {
 
 const kpiIcons = [Users, MessageSquare, Target, Flame];
 
+function DashboardLoadingState() {
+  return (
+    <AdminShell>
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
+          <p className="text-sm text-muted-foreground">
+            Monitor bot usage, content health, and student engagement.
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">Loading dashboard...</p>
+      </div>
+    </AdminShell>
+  );
+}
+
 export default function DashboardPage() {
-  const openReports = MOCK_REPORTS.filter((r) => r.status === "open");
-  const reviewQuestions = MOCK_QUESTIONS.filter((q) => q.status === "needs_review");
+  const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
+    queryKey: ["analytics"],
+    queryFn: fetchAnalyticsSummary,
+    retry: false,
+  });
+  const staffQuery = useQuery<AdminStaffUser[]>({
+    queryKey: ["staff-users"],
+    queryFn: listStaffUsers,
+    retry: false,
+  });
+  const questionsQuery = useQuery<QuestionRecord[]>({
+    queryKey: ["questions"],
+    queryFn: listQuestions,
+    retry: false,
+  });
+  const reportsQuery = useQuery({
+    queryKey: ["reports"],
+    queryFn: () => listReports(),
+    retry: false,
+  });
+
+  const analytics = analyticsQuery.data ?? null;
+  const staff = staffQuery.data ?? [];
+  const questions = questionsQuery.data ?? [];
+  const reports = reportsQuery.data?.items ?? [];
+  const openReports = reports.filter((report: ReportListItem) => report.status === "open");
+  const reviewQuestions = questions.filter((question) => question.status === "needs_review");
+  const kpis = analytics?.kpis ?? [];
+  const leaderboard = analytics?.leaderboard ?? [];
+
+  const isLoading =
+    (analyticsQuery.isLoading && !analytics) ||
+    (staffQuery.isLoading && staff.length === 0) ||
+    (questionsQuery.isLoading && questions.length === 0) ||
+    (reportsQuery.isLoading && reports.length === 0);
+
+  const hasFatalError =
+    analyticsQuery.isError && !analytics ||
+    staffQuery.isError && staff.length === 0 ||
+    questionsQuery.isError && questions.length === 0 ||
+    reportsQuery.isError && reports.length === 0;
+
+  if (isLoading) {
+    return <DashboardLoadingState />;
+  }
+
+  if (hasFatalError) {
+    return (
+      <AdminShell>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
+            <p className="text-sm text-muted-foreground">
+              Monitor bot usage, content health, and student engagement.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="py-12 text-center text-sm text-muted-foreground">
+              Unable to load dashboard data right now.
+            </CardContent>
+          </Card>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell>
@@ -42,9 +131,9 @@ export default function DashboardPage() {
 
         {/* KPI Cards */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {MOCK_KPIS.map((kpi, i) => {
+          {kpis.map((kpi, i) => {
             const TrendIcon = trendIcons[kpi.trend];
-            const KpiIcon = kpiIcons[i];
+            const KpiIcon = kpiIcons[i] ?? Users;
             return (
               <Card key={kpi.label}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -96,14 +185,14 @@ export default function DashboardPage() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Total Staff</p>
-                  <p className="text-xl font-semibold">{MOCK_STAFF.length}</p>
+                  <p className="text-xl font-semibold">{staff.length}</p>
                   <p className="text-xs text-muted-foreground">
-                    {MOCK_STAFF.filter((s) => s.is_active).length} active
+                    {staff.filter((s) => s.is_active).length} active
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Questions in Bank</p>
-                  <p className="text-xl font-semibold">{MOCK_QUESTIONS.length}</p>
+                  <p className="text-xl font-semibold">{questions.length}</p>
                   <p className="text-xs text-muted-foreground">
                     {reviewQuestions.length} need review
                   </p>
@@ -172,7 +261,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-2">
-              {MOCK_LEADERBOARD.slice(0, 5).map((entry) => (
+              {leaderboard.slice(0, 5).map((entry) => (
                 <div
                   key={entry.rank}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2"

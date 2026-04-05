@@ -146,3 +146,102 @@ async def test_catalog_service_caches_faculties_and_normalizes_repository_record
             "semester_code": "first",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_catalog_service_filters_courses_by_allowed_course_codes():
+    from types import SimpleNamespace
+
+    from src.domains.catalog.service import CatalogService
+    from src.infra.redis.state_store import InteractiveStateStore
+    from tests.fakes import FakeRedis
+
+    class FakeRepository:
+        async def get_faculty(self, faculty_code: str):
+            return SimpleNamespace(code=faculty_code, name="Faculty")
+
+        async def list_programs(self, faculty_code: str | None = None):
+            return [SimpleNamespace(code="electrical", name="Electrical")]
+
+        async def list_courses(self, **kwargs):
+            return [
+                SimpleNamespace(code="linear-algebra", name="Linear Algebra"),
+                SimpleNamespace(code="thermodynamics", name="Thermodynamics"),
+            ]
+
+    service = CatalogService(
+        repository=FakeRepository(),
+        state_store=InteractiveStateStore(FakeRedis(), bot_id="adarkwa"),
+        allowed_course_codes=("linear-algebra",),
+    )
+
+    courses = await service.get_courses(
+        "engineering",
+        "electrical",
+        "100",
+        "first",
+    )
+
+    assert courses == [
+        {
+            "code": "linear-algebra",
+            "name": "Linear Algebra",
+            "level_code": "100",
+            "semester_code": "first",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_catalog_service_can_lock_faculty_and_level_in_code():
+    from types import SimpleNamespace
+
+    from src.domains.catalog.service import CatalogService
+    from src.infra.redis.state_store import InteractiveStateStore
+    from tests.fakes import FakeRedis
+
+    class FakeRepository:
+        async def list_faculties(self):
+            return [
+                SimpleNamespace(code="engineering", name="Faculty of Engineering"),
+                SimpleNamespace(code="science", name="Faculty of Science"),
+            ]
+
+        async def get_faculty(self, faculty_code: str):
+            return SimpleNamespace(code=faculty_code, name=faculty_code)
+
+        async def list_programs(self, faculty_code: str | None = None):
+            return [SimpleNamespace(code="mechanical-engineering", name="Mechanical Engineering")]
+
+        async def get_program(self, program_code: str):
+            return SimpleNamespace(code=program_code, name=program_code)
+
+        async def list_levels(self):
+            return [
+                SimpleNamespace(code="100", name="Level 100"),
+                SimpleNamespace(code="200", name="Level 200"),
+            ]
+
+        async def list_courses(self, **kwargs):
+            return [SimpleNamespace(code="engineering-maths", name="Engineering Maths")]
+
+    service = CatalogService(
+        repository=FakeRepository(),
+        state_store=InteractiveStateStore(FakeRedis(), bot_id="adarkwa"),
+        fixed_faculty_code="engineering",
+        fixed_level_code="100",
+    )
+
+    assert await service.get_faculties() == [
+        {"code": "engineering", "name": "Faculty of Engineering"}
+    ]
+    assert await service.get_programs("science") == []
+    assert await service.get_levels("mechanical-engineering") == [
+        {"code": "100", "name": "Level 100"}
+    ]
+    assert await service.get_courses(
+        "engineering",
+        "mechanical-engineering",
+        "200",
+        "first",
+    ) == []

@@ -33,3 +33,26 @@ def test_home_service_hides_continue_when_no_active_quiz_exists():
     ]
 
     assert "home:continue_quiz" not in flattened_callbacks
+
+
+def test_home_service_uses_custom_button_labels():
+    service = HomeService(
+        button_labels={
+            "start_quiz": "Start Practice",
+            "continue_quiz": "Resume Practice",
+            "performance": "Progress",
+            "study_settings": "Study Setup",
+            "help": "Support",
+        }
+    )
+
+    home = service.build_home({}, has_active_quiz=True)
+
+    labels = [button["label"] for row in home["buttons"] for button in row]
+    assert labels == [
+        "Start Practice",
+        "Resume Practice",
+        "Progress",
+        "Study Setup",
+        "Support",
+    ]

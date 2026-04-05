@@ -62,7 +62,15 @@ class FakeSession:
 
         if statement_type == "delete":
             question_id = params["question_id_1"]
-            self.variants_by_question_id[question_id] = []
+            bot_id = params.get("bot_id_1")
+            if bot_id is None:
+                self.variants_by_question_id[question_id] = []
+            else:
+                self.variants_by_question_id[question_id] = [
+                    variant
+                    for variant in self.variants_by_question_id.get(question_id, [])
+                    if getattr(variant, "bot_id", "tanjah") != bot_id
+                ]
             return FakeResult()
 
         raise AssertionError(f"Unsupported statement: {statement_type}")
@@ -161,6 +169,7 @@ async def test_replace_asset_variants_replaces_existing_records_for_question():
         question.id,
         [
             {
+                "bot_id": "tanjah",
                 "variant_index": 0,
                 "option_order": [0, 1, 2, 3],
                 "question_asset_key": "questions/q0.png",
@@ -173,6 +182,7 @@ async def test_replace_asset_variants_replaces_existing_records_for_question():
         question.id,
         [
             {
+                "bot_id": "tanjah",
                 "variant_index": 1,
                 "option_order": [1, 0, 3, 2],
                 "question_asset_key": "questions/q1.png",
@@ -185,6 +195,48 @@ async def test_replace_asset_variants_replaces_existing_records_for_question():
     assert len(initial) == 1
     assert len(replaced) == 1
     assert session.variants_by_question_id[question.id][0].variant_index == 1
+
+
+@pytest.mark.asyncio
+async def test_replace_asset_variants_only_replaces_rows_for_matching_bot_id():
+    session = FakeSession()
+    repository = QuestionBankRepository(FakeSessionFactory(session))
+    question = await repository.upsert_question(make_question_payload(has_latex=True))
+
+    await repository.replace_asset_variants(
+        question.id,
+        [
+            {
+                "bot_id": "tanjah",
+                "variant_index": 0,
+                "option_order": [0, 1, 2, 3],
+                "question_asset_key": "questions/tanjah-v0.png",
+                "question_asset_url": "https://cdn.example/tanjah-v0.png",
+                "render_checksum": "r0",
+            }
+        ],
+        bot_id="tanjah",
+    )
+    await repository.replace_asset_variants(
+        question.id,
+        [
+            {
+                "bot_id": "adarkwa",
+                "variant_index": 0,
+                "option_order": [0, 1, 2, 3],
+                "question_asset_key": "questions/adarkwa-v0.png",
+                "question_asset_url": "https://cdn.example/adarkwa-v0.png",
+                "render_checksum": "r1",
+            }
+        ],
+        bot_id="adarkwa",
+    )
+
+    bot_ids = [
+        variant.bot_id
+        for variant in session.variants_by_question_id[question.id]
+    ]
+    assert bot_ids == ["tanjah", "adarkwa"]
 
 
 @pytest.mark.asyncio

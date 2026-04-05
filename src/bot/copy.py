@@ -1,22 +1,46 @@
 from collections.abc import Mapping
 
+from src.bot.runtime_config import BotThemeConfig
 
-def build_welcome_message(first_name: str | None) -> str:
+
+def _button_label(
+    key: str,
+    fallback: str,
+    bot_theme: BotThemeConfig | None = None,
+) -> str:
+    if bot_theme is None:
+        return fallback
+    return bot_theme.button_labels.get(key) or fallback
+
+
+def build_welcome_message(
+    first_name: str | None,
+    bot_theme: BotThemeConfig | None = None,
+) -> str:
     learner_name = first_name or "student"
+    prefix = "Welcome"
+    if bot_theme is not None:
+        prefix = f"Welcome to {bot_theme.brand_name}"
     return (
-        f"Welcome, {learner_name}.\n\n"
+        f"{prefix}, {learner_name}.\n\n"
         "Set up your study profile once, then use the home screen to start quizzes fast."
     )
 
 
-def build_home_message(profile: Mapping[str, str | None]) -> str:
+def build_home_message(
+    profile: Mapping[str, str | None],
+    bot_theme: BotThemeConfig | None = None,
+) -> str:
     faculty = profile.get("faculty_name") or "Not set"
     program = profile.get("program_name") or "Not set"
     level = profile.get("level_name") or "Not set"
     semester = profile.get("semester_name") or "Not set"
+    heading = "Study Home"
+    if bot_theme is not None:
+        heading = f"{bot_theme.brand_name} Study Home"
 
     return (
-        "Study Home\n\n"
+        f"{heading}\n\n"
         f"Faculty: {faculty}\n"
         f"Program: {program}\n"
         f"Level: {level}\n"
@@ -24,10 +48,19 @@ def build_home_message(profile: Mapping[str, str | None]) -> str:
     )
 
 
-def build_help_message() -> str:
+def build_help_message(bot_theme: BotThemeConfig | None = None) -> str:
+    if bot_theme is None:
+        return (
+            "Use Start Quiz to begin studying, Change Course to update your course, "
+            "and Performance to review your progress when it is connected."
+        )
+
+    start_label = _button_label("start_quiz", "Start Quiz", bot_theme)
+    settings_label = _button_label("study_settings", "Study Settings", bot_theme)
+    performance_label = _button_label("performance", "Performance", bot_theme)
     return (
-        "Use Start Quiz to begin studying, Change Course to update your course, "
-        "and Performance to review your progress when it is connected."
+        f"Use {start_label} to begin studying, {settings_label} to update your course, "
+        f"and {performance_label} to review your progress when it is connected."
     )
 
 

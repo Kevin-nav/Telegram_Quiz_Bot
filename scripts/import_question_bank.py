@@ -6,6 +6,9 @@ import logging
 import sys
 from pathlib import Path
 
+# Allow running from the bot root so src.core.config can find .env and src imports.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.domains.question_bank.import_service import QuestionBankImportService
 
 
@@ -151,3 +154,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
