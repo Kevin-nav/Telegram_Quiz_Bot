@@ -68,14 +68,16 @@ function getInitials(name: string) {
     .slice(0, 2);
 }
 
-function getPageTitle(pathname: string) {
+function getPageTitle(pathname: string | null | undefined) {
   if (pathname === "/") return "Overview";
+  if (!pathname) return "Admin";
   const item = navItems.find((n) => pathname.startsWith(n.href) && n.href !== "/");
   return item?.label ?? "Admin";
 }
 
 export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
+  const safePathname = pathname ?? "";
   const router = useRouter();
   const queryClient = useQueryClient();
   const principalQuery = useQuery({
@@ -91,10 +93,10 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
       return;
     }
 
-    if (principal?.must_change_password && pathname !== "/set-password") {
+    if (principal?.must_change_password && safePathname !== "/set-password") {
       router.replace("/set-password");
     }
-  }, [pathname, principal, principalQuery.isError, router]);
+  }, [safePathname, principal, principalQuery.isError, router]);
 
   async function handleLogout() {
     try {
@@ -153,8 +155,8 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                 {visibleNavItems.map((item) => {
                   const isActive =
                     item.href === "/"
-                      ? pathname === "/"
-                      : pathname.startsWith(item.href);
+                      ? safePathname === "/"
+                      : safePathname.startsWith(item.href);
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
