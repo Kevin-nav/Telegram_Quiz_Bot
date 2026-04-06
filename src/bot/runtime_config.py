@@ -52,9 +52,15 @@ DEFAULT_BOT_THEMES = {
         primary_color_hex="1A6B3A",
         accent_color_hex="F5B800",
         welcome_message_template=(
-            "🚀 Welcome to {brand_name}'s Study Bot, {learner_name}!\n\n"
-            "Let's get you ready for your exams. Set up your study profile first, "
-            "then you can access all the quizzes directly from the home screen."
+            "🎓 WELCOME TO MR. TANJAH STUDY BOT, {learner_name}! 🤖📚\n\n"
+            "Your smart companion for effective learning, guidance, and academic success. "
+            "We’ve got you fully covered on your journey to excellence.\n\n"
+            "Set up your study profile first, then use the home screen to fast-track your practice quizzes.\n\n"
+            "Ask questions. Learn smarter. Grow daily. 🚀\n\n"
+            "💡 “Education is the most powerful weapon which you can use to change the world.”\n\n"
+            "Let’s win together. 📈\n\n"
+            "#TANJAH_PHILIP\n"
+            "#YOUR_FINANCIAL_ENGINEER"
         ),
         welcome_image_path=None,
         button_labels={

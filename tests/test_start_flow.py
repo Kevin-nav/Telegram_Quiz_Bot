@@ -54,6 +54,10 @@ class FakeMessage:
         self.calls.append({"text": text, "reply_markup": reply_markup})
         return SimpleNamespace(message_id=len(self.calls))
 
+    async def reply_photo(self, photo, caption=None, reply_markup=None):
+        self.calls.append({"photo": photo, "caption": caption, "reply_markup": reply_markup})
+        return SimpleNamespace(message_id=len(self.calls))
+
 
 @pytest.mark.asyncio
 async def test_start_routes_new_user_to_setup(monkeypatch):
@@ -282,5 +286,7 @@ async def test_start_uses_bot_specific_welcome_copy_and_setup_label(monkeypatch)
 
     await start_command(update, context)
 
-    assert message.calls[0]["text"].startswith("Welcome to Adarkwa, Kevin.")
+    assert message.calls
+    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    assert content.startswith("👋 Welcome to Adarkwa's Study Bot, Kevin!")
     assert message.calls[0]["reply_markup"].inline_keyboard[0][0].text == "Study Setup"
