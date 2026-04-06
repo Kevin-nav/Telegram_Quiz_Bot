@@ -17,6 +17,8 @@ class BotThemeConfig:
     image_watermark_text: str
     primary_color_hex: str
     accent_color_hex: str
+    welcome_message_template: str = ""
+    welcome_image_path: str | None = None
     button_labels: dict[str, str] = field(default_factory=dict)
 
 
@@ -49,6 +51,12 @@ DEFAULT_BOT_THEMES = {
         image_watermark_text="TANJAH",
         primary_color_hex="1A6B3A",
         accent_color_hex="F5B800",
+        welcome_message_template=(
+            "🚀 Welcome to {brand_name}'s Study Bot, {learner_name}!\n\n"
+            "Let's get you ready for your exams. Set up your study profile first, "
+            "then you can access all the quizzes directly from the home screen."
+        ),
+        welcome_image_path=None,
         button_labels={
             "start_quiz": "Start Quiz",
             "continue_quiz": "Continue Quiz",
@@ -65,6 +73,14 @@ DEFAULT_BOT_THEMES = {
         image_watermark_text="ADARKWA",
         primary_color_hex="123B7A",
         accent_color_hex="F59E0B",
+        welcome_message_template=(
+            "👋 Welcome to {brand_name}'s Study Bot, {learner_name}!\n\n"
+            "The future isn't just coming; we are owning it! 🛠️⚙️ Brought to you by Team Adarkwah "
+            "and The View Projector, this tool is here to empower you to take charge of your academics.\n\n"
+            "Set up your study profile once, then use the home screen to jump straight into practice quizzes. "
+            "Let's keep Owning The Future! #OTF"
+        ),
+        welcome_image_path="assets/Adarkwa.jpg",
         button_labels={
             "start_quiz": "Start Practice",
             "continue_quiz": "Resume Practice",

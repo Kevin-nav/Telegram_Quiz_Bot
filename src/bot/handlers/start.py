@@ -58,13 +58,31 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await invalidate_quiz_callback_targets(context, user_id=telegram_user.id)
 
     if not getattr(user, "onboarding_completed", False):
-        reply = await update.message.reply_text(
-            build_welcome_message(
-                telegram_user.first_name or telegram_user.full_name,
-                bot_theme,
-            ),
-            reply_markup=build_welcome_keyboard(bot_theme),
+        welcome_text = build_welcome_message(
+            telegram_user.first_name or telegram_user.full_name,
+            bot_theme,
         )
+        reply_markup = build_welcome_keyboard(bot_theme)
+
+        if bot_theme and bot_theme.welcome_image_path:
+            try:
+                with open(bot_theme.welcome_image_path, "rb") as f:
+                    reply = await update.message.reply_photo(
+                        photo=f,
+                        caption=welcome_text,
+                        reply_markup=reply_markup,
+                    )
+            except FileNotFoundError:
+                logger.warning(f"Welcome image not found: {bot_theme.welcome_image_path}")
+                reply = await update.message.reply_text(
+                    text=welcome_text,
+                    reply_markup=reply_markup,
+                )
+        else:
+            reply = await update.message.reply_text(
+                text=welcome_text,
+                reply_markup=reply_markup,
+            )
     else:
         home = home_service.build_home(
             build_home_profile(user),

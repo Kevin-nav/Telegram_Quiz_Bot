@@ -18,6 +18,12 @@ def build_welcome_message(
     bot_theme: BotThemeConfig | None = None,
 ) -> str:
     learner_name = first_name or "student"
+    if bot_theme and bot_theme.welcome_message_template:
+        return bot_theme.welcome_message_template.format(
+            brand_name=bot_theme.brand_name,
+            learner_name=learner_name
+        )
+
     prefix = "Welcome"
     if bot_theme is not None:
         prefix = f"Welcome to {bot_theme.brand_name}"
