@@ -100,7 +100,8 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
     await start_command(update, context)
 
     assert message.calls
-    assert "set up your study profile" in message.calls[0]["text"].lower()
+    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    assert "set up your study profile" in content.lower()
     assert profile_service.calls == [(42, "Kevin")]
     assert len(scheduler.calls) == 1
     assert context.user_data["active_interactive_message_id"] == 1
@@ -195,7 +196,8 @@ async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
     await start_command(update, context)
 
     assert message.calls
-    assert "set up your study profile" in message.calls[0]["text"].lower()
+    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    assert "set up your study profile" in content.lower()
 
 
 @pytest.mark.asyncio

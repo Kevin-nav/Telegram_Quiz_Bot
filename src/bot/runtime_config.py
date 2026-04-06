@@ -62,7 +62,7 @@ DEFAULT_BOT_THEMES = {
             "#TANJAH_PHILIP\n"
             "#YOUR_FINANCIAL_ENGINEER"
         ),
-        welcome_image_path=None,
+        welcome_image_path="assets/Tanjah.jpg",
         button_labels={
             "start_quiz": "Start Quiz",
             "continue_quiz": "Continue Quiz",
