@@ -102,6 +102,7 @@ def remember_reply_message(context: ContextTypes.DEFAULT_TYPE, reply) -> None:
         context.user_data[ACTIVE_INTERACTIVE_MESSAGE_ID_KEY] = message_id
 
 
+
 async def invalidate_quiz_callback_targets(
     context: ContextTypes.DEFAULT_TYPE,
     *,

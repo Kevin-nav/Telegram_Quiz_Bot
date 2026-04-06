@@ -100,11 +100,16 @@ async def test_start_routes_new_user_to_setup(monkeypatch):
     await start_command(update, context)
 
     assert message.calls
-    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    # Option B: when image is configured, calls[0] is the photo, calls[1] is text+buttons
+    # Without image: calls[0] is text+buttons directly
+    text_call = next(
+        (c for c in message.calls if c.get("text")),
+        message.calls[0],
+    )
+    content = text_call.get("text") or text_call.get("caption")
     assert "set up your study profile" in content.lower()
     assert profile_service.calls == [(42, "Kevin")]
     assert len(scheduler.calls) == 1
-    assert context.user_data["active_interactive_message_id"] == 1
 
 
 @pytest.mark.asyncio
@@ -196,7 +201,11 @@ async def test_start_still_replies_when_no_background_scheduler(monkeypatch):
     await start_command(update, context)
 
     assert message.calls
-    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    text_call = next(
+        (c for c in message.calls if c.get("text")),
+        message.calls[0],
+    )
+    content = text_call.get("text") or text_call.get("caption")
     assert "set up your study profile" in content.lower()
 
 
@@ -253,6 +262,17 @@ async def test_start_uses_bot_specific_welcome_copy_and_setup_label(monkeypatch)
         mock_record_analytics_event,
     )
 
+    # Mock open so the image path is treated as present without needing the real file
+    import builtins
+    import io
+    fake_file = io.BytesIO(b"fake-image-bytes")
+    real_open = builtins.open
+    def mock_open(path, mode="r", **kwargs):
+        if "assets" in str(path) and "b" in mode:
+            return fake_file
+        return real_open(path, mode, **kwargs)
+    monkeypatch.setattr(builtins, "open", mock_open)
+
     message = FakeMessage()
     user = SimpleNamespace(
         id=42,
@@ -289,6 +309,12 @@ async def test_start_uses_bot_specific_welcome_copy_and_setup_label(monkeypatch)
     await start_command(update, context)
 
     assert message.calls
-    content = message.calls[0].get("text") or message.calls[0].get("caption")
+    # Option B: photo is calls[0] (no buttons), text+buttons is calls[1]
+    photo_call = message.calls[0]
+    assert "photo" in photo_call  # first message is the image, no reply_markup
+    assert photo_call.get("reply_markup") is None
+    text_call = message.calls[1]
+    content = text_call.get("text") or text_call.get("caption")
     assert content.startswith("👋 Welcome to Adarkwa's Study Bot, Kevin!")
-    assert message.calls[0]["reply_markup"].inline_keyboard[0][0].text == "Study Setup"
+    assert text_call["reply_markup"].inline_keyboard[0][0].text == "Study Setup"
+

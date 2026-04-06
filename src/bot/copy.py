@@ -33,6 +33,20 @@ def build_welcome_message(
     )
 
 
+def build_returning_welcome_message(
+    first_name: str | None,
+    bot_theme: BotThemeConfig | None = None,
+) -> str:
+    learner_name = first_name or "there"
+    if bot_theme and bot_theme.returning_message_template:
+        return bot_theme.returning_message_template.format(
+            brand_name=bot_theme.brand_name,
+            learner_name=learner_name,
+        )
+    prefix = bot_theme.brand_name if bot_theme else "Study Bot"
+    return f"👋 Welcome back, {learner_name}! Tap below to get started.\n— {prefix}"
+
+
 def build_home_message(
     profile: Mapping[str, str | None],
     bot_theme: BotThemeConfig | None = None,

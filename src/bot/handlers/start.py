@@ -3,7 +3,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from src.bot.copy import build_home_message, build_welcome_message
+from src.bot.copy import build_home_message, build_returning_welcome_message, build_welcome_message
 from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID
 from src.bot.handlers.command_utils import (
     build_home_profile,
@@ -64,32 +64,33 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         reply_markup = build_welcome_keyboard(bot_theme)
 
+        # Option B: send image separately with no buttons, then a plain
+        # text message that carries the buttons. This keeps the interactive
+        # message as a text type so edit_message_text always works.
         if bot_theme and bot_theme.welcome_image_path:
             try:
                 with open(bot_theme.welcome_image_path, "rb") as f:
-                    reply = await update.message.reply_photo(
-                        photo=f,
-                        caption=welcome_text,
-                        reply_markup=reply_markup,
-                    )
+                    await update.message.reply_photo(photo=f)
             except FileNotFoundError:
                 logger.warning(f"Welcome image not found: {bot_theme.welcome_image_path}")
-                reply = await update.message.reply_text(
-                    text=welcome_text,
-                    reply_markup=reply_markup,
-                )
-        else:
-            reply = await update.message.reply_text(
-                text=welcome_text,
-                reply_markup=reply_markup,
-            )
+
+        reply = await update.message.reply_text(
+            text=welcome_text,
+            reply_markup=reply_markup,
+        )
     else:
+        # Returning user: show a short, friendly greeting + home keyboard
         home = home_service.build_home(
             build_home_profile(user),
             has_active_quiz=getattr(user, "has_active_quiz", False),
         )
+        short_greeting = build_returning_welcome_message(
+            telegram_user.first_name or telegram_user.full_name,
+            bot_theme,
+        )
+        full_text = f"{short_greeting}\n\n{build_home_message(build_home_profile(user), bot_theme)}"
         reply = await update.message.reply_text(
-            build_home_message(build_home_profile(user), bot_theme),
+            full_text,
             reply_markup=build_home_keyboard(home["buttons"]),
         )
     remember_reply_message(context, reply)

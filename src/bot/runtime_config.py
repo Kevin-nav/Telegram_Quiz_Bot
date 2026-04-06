@@ -18,6 +18,7 @@ class BotThemeConfig:
     primary_color_hex: str
     accent_color_hex: str
     welcome_message_template: str = ""
+    returning_message_template: str = ""
     welcome_image_path: str | None = None
     button_labels: dict[str, str] = field(default_factory=dict)
 
@@ -63,6 +64,10 @@ DEFAULT_BOT_THEMES = {
             "#YOUR_FINANCIAL_ENGINEER"
         ),
         welcome_image_path="assets/Tanjah.jpg",
+        returning_message_template=(
+            "👋 Welcome back, {learner_name}! 📚\n"
+            "Ready to keep winning? Let's go. 🚀"
+        ),
         button_labels={
             "start_quiz": "Start Quiz",
             "continue_quiz": "Continue Quiz",
@@ -87,6 +92,10 @@ DEFAULT_BOT_THEMES = {
             "Let's keep Owning The Future! #OTF"
         ),
         welcome_image_path="assets/Adarkwa.jpg",
+        returning_message_template=(
+            "👋 Owning The Future takes showing up, {learner_name}! 🔥\n"
+            "Let's get to work. #OTF"
+        ),
         button_labels={
             "start_quiz": "Start Practice",
             "continue_quiz": "Resume Practice",
