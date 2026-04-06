@@ -226,7 +226,7 @@ class AdminAnalyticsService:
                     "topic_skills": dict(getattr(state, "topic_skills", {}) or {}),
                     "cognitive_profile": dict(getattr(state, "cognitive_profile", {}) or {}),
                     "processing_profile": dict(getattr(state, "processing_profile", {}) or {}),
-                    "misconception_flags": list(
+                    "misconception_flags": self._serialize_misconception_flags(
                         getattr(state, "misconception_flags", []) or []
                     ),
                     "total_quizzes_completed": int(
@@ -930,6 +930,52 @@ class AdminAnalyticsService:
         if not value:
             return ""
         return str(value).replace("-", " ").replace("_", " ").title()
+
+    def _serialize_misconception_flags(self, flags: list[dict] | None) -> list[dict]:
+        payload = []
+        for raw_flag in flags or []:
+            if not isinstance(raw_flag, dict):
+                continue
+
+            topic = str(
+                raw_flag.get("topic")
+                or raw_flag.get("topic_id")
+                or raw_flag.get("question_id")
+                or ""
+            ).strip()
+            if not topic:
+                continue
+
+            description = str(raw_flag.get("description") or "").strip()
+            if not description:
+                selected_distractor = str(raw_flag.get("selected_distractor") or "").strip()
+                if selected_distractor:
+                    description = (
+                        f"Repeatedly selects '{selected_distractor}' on related questions."
+                    )
+                else:
+                    description = "Repeated difficulty detected on related questions."
+
+            severity = str(raw_flag.get("severity") or "").strip().lower()
+            if severity not in {"low", "medium", "high"}:
+                times_selected = int(raw_flag.get("times_selected", 1) or 1)
+                if bool(raw_flag.get("resolved", False)):
+                    severity = "low"
+                elif times_selected >= 3:
+                    severity = "high"
+                elif times_selected >= 2:
+                    severity = "medium"
+                else:
+                    severity = "low"
+
+            payload.append(
+                {
+                    "topic": topic,
+                    "description": description,
+                    "severity": severity,
+                }
+            )
+        return payload
 
     def _as_date(self, value: datetime) -> date:
         if value.tzinfo is None:

@@ -51,13 +51,25 @@ const trendIcons = {
 
 const kpiIcons = [Users, MessageSquare, Target, Flame];
 
-function phaseDot(phase: string) {
+function normalizePhase(phase: string | null | undefined) {
+  if (phase === "warm" || phase === "established" || phase === "cold_start") {
+    return phase;
+  }
+  return "cold_start";
+}
+
+function formatPhaseLabel(phase: string | null | undefined) {
+  return normalizePhase(phase).replace("_", " ");
+}
+
+function phaseDot(phase: string | null | undefined) {
   const colors: Record<string, string> = {
     cold_start: "bg-blue-500",
     warm: "bg-amber-500",
     established: "bg-emerald-500",
   };
-  return <span className={`inline-block size-2 rounded-full ${colors[phase] ?? colors.cold_start}`} />;
+  const normalizedPhase = normalizePhase(phase);
+  return <span className={`inline-block size-2 rounded-full ${colors[normalizedPhase]}`} />;
 }
 
 export default function AnalyticsPage() {
@@ -321,7 +333,7 @@ export default function AnalyticsPage() {
                         <div className="flex items-center justify-center gap-1.5">
                           {phaseDot(entry.phase)}
                           <span className="text-xs text-muted-foreground capitalize">
-                            {entry.phase.replace("_", " ")}
+                            {formatPhaseLabel(entry.phase)}
                           </span>
                         </div>
                       </TableCell>

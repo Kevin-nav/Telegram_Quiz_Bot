@@ -59,13 +59,20 @@ import {
 import { adminQueryKeys } from "@/lib/query-keys";
 import { useAdminPrincipal } from "@/lib/use-admin-principal";
 
-function phaseBadge(phase: string) {
+function normalizePhase(phase: string | null | undefined) {
+  if (phase === "warm" || phase === "established" || phase === "cold_start") {
+    return phase;
+  }
+  return "cold_start";
+}
+
+function phaseBadge(phase: string | null | undefined) {
   const map: Record<string, { label: string; cls: string }> = {
     cold_start: { label: "Cold Start", cls: "border-blue-500/30 bg-blue-500/10 text-blue-600" },
     warm: { label: "Warm", cls: "border-amber-500/30 bg-amber-500/10 text-amber-600" },
     established: { label: "Established", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" },
   };
-  const p = map[phase] ?? map.cold_start;
+  const p = map[normalizePhase(phase)];
   return <Badge variant="outline" className={`text-xs ${p.cls}`}>{p.label}</Badge>;
 }
 
@@ -90,8 +97,16 @@ function skillBarColor(skill: number) {
   return "bg-red-500";
 }
 
-function formatTopicName(id: string) {
-  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function humanizeToken(value: string | null | undefined, fallback = "Unknown") {
+  const normalized = `${value ?? ""}`.trim();
+  if (!normalized) {
+    return fallback;
+  }
+  return normalized.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatTopicName(id: string | null | undefined) {
+  return humanizeToken(id, "Unknown Topic");
 }
 
 function timeAgo(iso: string) {
@@ -112,6 +127,19 @@ function formatSeconds(s: number) {
 function daysUntil(iso: string) {
   const diff = new Date(iso).getTime() - Date.now();
   return Math.max(0, Math.ceil(diff / 86400000));
+}
+
+function initials(value: string | null | undefined) {
+  const normalized = `${value ?? ""}`.trim();
+  if (!normalized) {
+    return "ST";
+  }
+  return normalized
+    .split(/\s+/)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 const tooltipStyle = {
@@ -221,11 +249,15 @@ export default function StudentDetailPage() {
               <ArrowLeft className="size-4" />
             </Button>
             <div className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold">
-              {p.display_name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+              {initials(p.display_name)}
             </div>
             <div>
-              <h2 className="text-xl font-semibold tracking-tight">{p.display_name}</h2>
-              <p className="text-sm text-muted-foreground">@{p.telegram_username}</p>
+              <h2 className="text-xl font-semibold tracking-tight">
+                {humanizeToken(p.display_name, "Student")}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                @{humanizeToken(p.telegram_username, "unknown_user")}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

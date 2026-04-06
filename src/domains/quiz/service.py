@@ -331,7 +331,6 @@ class QuizSessionService:
             correct_option_id=question.correct_option_id,
         )
         session.current_poll_id = message.poll.id
-        session.answer_action_message_id = None
         await self.state_store.set_quiz_session(session)
         await self.state_store.set_poll_map(
             PollMapRecord(

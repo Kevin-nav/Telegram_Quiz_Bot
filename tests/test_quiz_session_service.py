@@ -315,6 +315,8 @@ async def test_poll_answer_advances_quiz_without_db_dependency(monkeypatch):
     assert loaded_session.current_index == 1
     assert loaded_session.current_poll_id == "poll-2"
     assert loaded_session.last_answered_question_id == first_question.question_id
+    assert loaded_session.answer_action_message_id == bot.message_calls[3]["message_id"]
+    assert loaded_session.question_action_message_id == bot.message_calls[5]["message_id"]
     assert len(bot.poll_calls) == 2
     assert bot.message_calls[2]["text"].startswith("✅ Correct")
     assert "Explanation:" in bot.message_calls[2]["text"]
