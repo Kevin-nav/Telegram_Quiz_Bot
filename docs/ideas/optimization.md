@@ -1,13 +1,11 @@
 We need to optimize how we get questions from the database using various methods and patterns.
 
 1. Add an index to frequently used tables in the database
-2. Utilize the redis cache to serve questions from cache too after the adaptive algorithm has picked up the questions. So we can use redis as our intermediate database until everything moves to the main database. Images too can and should also be cached into the redis database.
+2. Use Redis as a hot cache for the adaptive selector and runtime state, not as an intermediate primary database. Keep Postgres canonical and keep binary images in R2/CDN.
 - How to implement the caching with the adaptive algorithm:
-  - We cache all parts that do not change too much in the database that the adaptive algorithm reaches for all the time. like the number of questions, the names of the questions and all.
-  - then we save more and more questions to cache for about 1 hour or more so the adaptive algorithm does not need to go to teh database to fetch all the questions needed for each session.
-  - In terms of questions, we should make the questions in cache global so we don't refetch from the database when not needed to be done.
-3. Precompute and store to the database things the admin platform will use, and then store what will change more frequently in the redis cache so we don't need to be straniing the database.
+  - Cache a lightweight per-course question manifest for selector fields such as question key, topic, difficulty, band, and variant pointers.
+  - Cache a per-learner selector snapshot with attempted IDs, attempt summaries, last correct timestamps, and SRS state so quiz start does not have to rescan raw attempts.
+  - Fetch full canonical question rows only for the selected question keys after the algorithm chooses them.
+3. Precompute and store in Postgres the summaries the admin platform will use, then let Redis cache the latest hot payloads with stale-while-revalidate behavior.
 
-
-
-The main aim is to reduce the compute the database has to do in terms on amount of compute per query and also the number of queries tooo. we want to make sure it stays low as possible while still working for us.
+The main aim is to reduce the compute the database has to do, both in amount of work per query and in the number of queries, while keeping the system correct and easy to rebuild if Redis is lost.
