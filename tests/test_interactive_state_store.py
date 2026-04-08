@@ -109,6 +109,52 @@ async def test_adaptive_snapshot_round_trip_and_invalidation():
 
 
 @pytest.mark.asyncio
+async def test_question_manifest_and_selector_snapshot_round_trip():
+    store = InteractiveStateStore(FakeRedis())
+
+    manifest = [{"source_question_id": 1, "question_key": "q1", "topic_id": "topic-a"}]
+    selector_snapshot = {
+        "attempts_by_question": {
+            "q1": {
+                "total_attempts": 2,
+                "wrong_attempts": 1,
+                "last_wrong_at": None,
+            }
+        },
+        "recently_correct_at_by_question": {},
+        "attempted_question_ids": ["q1"],
+        "srs_by_question": {"q1": {"box": 2, "last_correct_at": None}},
+    }
+
+    await store.set_course_question_manifest("calculus", manifest)
+    await store.set_selector_snapshot(42, "calculus", selector_snapshot)
+
+    assert await store.get_course_question_manifest("calculus") == manifest
+    assert await store.get_selector_snapshot(42, "calculus") == selector_snapshot
+
+    await store.record_selector_attempt(
+        user_id=42,
+        course_id="calculus",
+        question_key="q1",
+        is_correct=False,
+        created_at=None,
+        srs_state={"box": 1, "last_correct_at": None},
+    )
+    updated_snapshot = await store.get_selector_snapshot(42, "calculus")
+
+    assert updated_snapshot is not None
+    assert updated_snapshot["attempts_by_question"]["q1"]["total_attempts"] == 3
+    assert updated_snapshot["attempts_by_question"]["q1"]["wrong_attempts"] == 2
+    assert updated_snapshot["srs_by_question"]["q1"]["box"] == 1
+
+    await store.invalidate_course_question_manifest("calculus")
+    await store.invalidate_selector_snapshot(42, "calculus")
+
+    assert await store.get_course_question_manifest("calculus") is None
+    assert await store.get_selector_snapshot(42, "calculus") is None
+
+
+@pytest.mark.asyncio
 async def test_adaptive_update_lock_rejects_duplicate_acquire():
     store = InteractiveStateStore(FakeRedis())
 
@@ -263,12 +309,42 @@ async def test_adaptive_runtime_helpers_are_bot_scoped():
 
     await tanjah_store.set_adaptive_snapshot(42, "calculus", {"overall_skill": 2.7})
     await adarkwa_store.set_adaptive_snapshot(42, "calculus", {"overall_skill": 4.1})
+    await tanjah_store.set_course_question_manifest(
+        "calculus",
+        [{"source_question_id": 1, "question_key": "tanjah-q1"}],
+    )
+    await adarkwa_store.set_course_question_manifest(
+        "calculus",
+        [{"source_question_id": 2, "question_key": "adarkwa-q1"}],
+    )
+    await tanjah_store.set_selector_snapshot(
+        42,
+        "calculus",
+        {"attempted_question_ids": ["tanjah-q1"]},
+    )
+    await adarkwa_store.set_selector_snapshot(
+        42,
+        "calculus",
+        {"attempted_question_ids": ["adarkwa-q1"]},
+    )
 
     tanjah_lock = await tanjah_store.acquire_adaptive_update_lock(42, "calculus")
     adarkwa_lock = await adarkwa_store.acquire_adaptive_update_lock(42, "calculus")
 
     assert await tanjah_store.get_adaptive_snapshot(42, "calculus") == {"overall_skill": 2.7}
     assert await adarkwa_store.get_adaptive_snapshot(42, "calculus") == {"overall_skill": 4.1}
+    assert await tanjah_store.get_course_question_manifest("calculus") == [
+        {"source_question_id": 1, "question_key": "tanjah-q1"}
+    ]
+    assert await adarkwa_store.get_course_question_manifest("calculus") == [
+        {"source_question_id": 2, "question_key": "adarkwa-q1"}
+    ]
+    assert await tanjah_store.get_selector_snapshot(42, "calculus") == {
+        "attempted_question_ids": ["tanjah-q1"]
+    }
+    assert await adarkwa_store.get_selector_snapshot(42, "calculus") == {
+        "attempted_question_ids": ["adarkwa-q1"]
+    }
     assert tanjah_lock is not None
     assert adarkwa_lock is not None
 

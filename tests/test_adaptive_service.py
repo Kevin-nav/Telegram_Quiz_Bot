@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 
 import pytest
 
-from src.domains.adaptive.models import AdaptiveQuestionProfile
+from src.domains.adaptive.models import AdaptiveQuestionProfile, AttemptHistorySummary
 from src.domains.adaptive.service import AdaptiveLearningService
 
 
@@ -27,11 +28,39 @@ class FakeQuestionRow:
 class FakeQuestionBankRepository:
     def __init__(self, rows):
         self.rows = list(rows)
-        self.calls = []
+        self.ready_calls = []
+        self.manifest_calls = []
+        self.hydrate_calls = []
 
     async def list_ready_questions(self, course_id: str):
-        self.calls.append(course_id)
+        self.ready_calls.append(course_id)
         return list(self.rows)
+
+    async def list_ready_question_manifest(self, course_id: str):
+        self.manifest_calls.append(course_id)
+        return [
+            {
+                "source_question_id": row.id,
+                "question_key": row.question_key,
+                "topic_id": row.topic_id,
+                "scaled_score": row.scaled_score,
+                "band": row.band,
+                "cognitive_level": row.cognitive_level,
+                "processing_complexity": row.processing_complexity,
+                "distractor_complexity": row.distractor_complexity,
+                "note_reference": row.note_reference,
+                "question_type": row.question_type,
+                "option_count": row.option_count,
+                "has_latex": row.has_latex,
+            }
+            for row in self.rows
+        ]
+
+    async def list_questions_by_keys(self, question_keys):
+        keys = tuple(question_keys)
+        self.hydrate_calls.append(keys)
+        allowed = set(keys)
+        return [row for row in self.rows if row.question_key in allowed]
 
 
 class FakeStudentCourseStateRecord:
@@ -90,7 +119,7 @@ class FakeQuestionAttemptRepository:
         self.attempts_by_question_id = attempts_by_question_id or {}
         self.calls = []
 
-    async def list_attempts_for_questions(
+    async def summarize_attempts_for_questions(
         self,
         *,
         user_id: int,
@@ -100,7 +129,7 @@ class FakeQuestionAttemptRepository:
         question_ids = tuple(question_ids)
         self.calls.append((user_id, question_ids, bot_id))
         return {
-            question_id: list(self.attempts_by_question_id.get(question_id, ()))
+            question_id: self.attempts_by_question_id.get(question_id)
             for question_id in question_ids
             if question_id in self.attempts_by_question_id
         }
@@ -111,6 +140,8 @@ class FakeSrsRecord:
         self.question_id = question_id
         self.box = box
         self.last_correct_at = None
+        self.last_presented_at = None
+        self.last_transition_at = None
 
 
 class FakeStudentQuestionSrsRepository:
@@ -131,6 +162,8 @@ class FakeStudentQuestionSrsRepository:
 class FakeStateStore:
     def __init__(self):
         self.snapshots = {}
+        self.selector_snapshots = {}
+        self.manifests = {}
         self.invalidations = []
 
     async def get_adaptive_snapshot(self, user_id: int, course_id: str):
@@ -143,24 +176,43 @@ class FakeStateStore:
         self.invalidations.append((user_id, course_id))
         self.snapshots.pop((user_id, course_id), None)
 
+    async def get_course_question_manifest(self, course_id: str):
+        return self.manifests.get(course_id)
+
+    async def set_course_question_manifest(self, course_id: str, manifest):
+        self.manifests[course_id] = manifest
+
+    async def invalidate_course_question_manifest(self, course_id: str):
+        self.manifests.pop(course_id, None)
+
+    async def get_selector_snapshot(self, user_id: int, course_id: str):
+        return self.selector_snapshots.get((user_id, course_id))
+
+    async def set_selector_snapshot(self, user_id: int, course_id: str, snapshot: dict):
+        self.selector_snapshots[(user_id, course_id)] = snapshot
+
+    async def invalidate_selector_snapshot(self, user_id: int, course_id: str):
+        self.selector_snapshots.pop((user_id, course_id), None)
+
 
 @pytest.mark.asyncio
 async def test_adaptive_service_selects_questions_from_batched_inputs():
     state_store = FakeStateStore()
     attempt_repository = FakeQuestionAttemptRepository(
         {
-            1: [FakeAttempt(is_correct=False)],
-            2: [FakeAttempt(is_correct=True)],
+            1: AttemptHistorySummary(total_attempts=1, wrong_attempts=1),
+            2: AttemptHistorySummary(total_attempts=1, wrong_attempts=0),
         }
     )
+    question_bank_repository = FakeQuestionBankRepository(
+        [
+            FakeQuestionRow(1, "q1", "topic-a", 2.0),
+            FakeQuestionRow(2, "q2", "topic-a", 2.7),
+            FakeQuestionRow(3, "q3", "topic-b", 3.0, band=2),
+        ]
+    )
     service = AdaptiveLearningService(
-        question_bank_repository=FakeQuestionBankRepository(
-            [
-                FakeQuestionRow(1, "q1", "topic-a", 2.0),
-                FakeQuestionRow(2, "q2", "topic-a", 2.7),
-                FakeQuestionRow(3, "q3", "topic-b", 3.0, band=2),
-            ]
-        ),
+        question_bank_repository=question_bank_repository,
         question_attempt_repository=attempt_repository,
         student_course_state_repository=FakeStudentCourseStateRepository(),
         student_question_srs_repository=FakeStudentQuestionSrsRepository(
@@ -180,6 +232,9 @@ async def test_adaptive_service_selects_questions_from_batched_inputs():
     assert all(question.question_id in {"q1", "q2", "q3"} for question in result.selected_questions)
     assert state_store.snapshots[(42, "calculus")]["overall_skill"] == 2.5
     assert attempt_repository.calls == [(42, (1, 2, 3), None)]
+    assert question_bank_repository.manifest_calls == ["calculus"]
+    assert len(result.question_rows) == 2
+    assert state_store.selector_snapshots[(42, "calculus")]["attempted_question_ids"] == ["q2"]
 
 
 @pytest.mark.asyncio
@@ -215,3 +270,77 @@ async def test_adaptive_service_persists_updated_student_state_after_attempt_upd
     assert updates["overall_skill"] > 2.5
     assert updates["total_attempts"] == 1
     assert state_store.invalidations == [(42, "calculus")]
+
+
+@pytest.mark.asyncio
+async def test_adaptive_service_reuses_cached_manifest_and_selector_snapshot():
+    state_store = FakeStateStore()
+    state_store.manifests["calculus"] = [
+        {
+            "source_question_id": 1,
+            "question_key": "q1",
+            "topic_id": "topic-a",
+            "scaled_score": 2.0,
+            "band": 3,
+            "cognitive_level": "Understanding",
+            "processing_complexity": 1.0,
+            "distractor_complexity": 1.0,
+            "note_reference": 1.0,
+            "question_type": "MCQ",
+            "option_count": 4,
+            "has_latex": False,
+        },
+        {
+            "source_question_id": 2,
+            "question_key": "q2",
+            "topic_id": "topic-b",
+            "scaled_score": 2.6,
+            "band": 3,
+            "cognitive_level": "Understanding",
+            "processing_complexity": 1.0,
+            "distractor_complexity": 1.0,
+            "note_reference": 1.0,
+            "question_type": "MCQ",
+            "option_count": 4,
+            "has_latex": False,
+        },
+    ]
+    state_store.selector_snapshots[(42, "calculus")] = {
+        "attempts_by_question": {
+            "q1": {
+                "total_attempts": 2,
+                "wrong_attempts": 1,
+                "last_wrong_at": None,
+            }
+        },
+        "recently_correct_at_by_question": {},
+        "attempted_question_ids": ["q1"],
+        "srs_by_question": {},
+    }
+    question_bank_repository = FakeQuestionBankRepository(
+        [
+            FakeQuestionRow(1, "q1", "topic-a", 2.0),
+            FakeQuestionRow(2, "q2", "topic-b", 2.6),
+        ]
+    )
+    attempt_repository = FakeQuestionAttemptRepository()
+    srs_repository = FakeStudentQuestionSrsRepository()
+    service = AdaptiveLearningService(
+        question_bank_repository=question_bank_repository,
+        question_attempt_repository=attempt_repository,
+        student_course_state_repository=FakeStudentCourseStateRepository(),
+        student_question_srs_repository=srs_repository,
+        state_store=state_store,
+    )
+
+    result = await service.select_questions(
+        user_id=42,
+        course_id="calculus",
+        quiz_length=1,
+        rng=random.Random(0),
+    )
+
+    assert len(result.selected_questions) == 1
+    assert question_bank_repository.manifest_calls == []
+    assert attempt_repository.calls == []
+    assert srs_repository.calls == []

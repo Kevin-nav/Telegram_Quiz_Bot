@@ -98,9 +98,10 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
 
     source_question_id = payload.get("source_question_id")
     metadata = payload.get("metadata", {})
+    persisted_attempt = None
     try:
         if source_question_id is not None:
-            await question_attempt_repository.create_attempt(
+            persisted_attempt = await question_attempt_repository.create_attempt(
                 {
                     "session_id": payload["session_id"],
                     "user_id": payload["user_id"],
@@ -182,8 +183,8 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                     if presented_at_raw
                     else datetime.now(UTC)
                 )
-                now = datetime.now(UTC)
-                await student_question_srs_repository.upsert(
+                now = getattr(persisted_attempt, "created_at", None) or datetime.now(UTC)
+                srs_record = await student_question_srs_repository.upsert(
                     user_id=payload["user_id"],
                     bot_id=payload.get("bot_id"),
                     course_id=payload["course_id"],
@@ -197,6 +198,32 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                     ),
                     last_transition_at=now,
                 )
+                if runtime is not None:
+                    await runtime.state_store.record_selector_attempt(
+                        user_id=payload["user_id"],
+                        course_id=payload["course_id"],
+                        question_key=payload["question_id"],
+                        is_correct=payload["is_correct"],
+                        created_at=now,
+                        srs_state={
+                            "box": srs_record.box,
+                            "last_presented_at": (
+                                srs_record.last_presented_at.isoformat()
+                                if srs_record.last_presented_at is not None
+                                else None
+                            ),
+                            "last_correct_at": (
+                                srs_record.last_correct_at.isoformat()
+                                if srs_record.last_correct_at is not None
+                                else None
+                            ),
+                            "last_transition_at": (
+                                srs_record.last_transition_at.isoformat()
+                                if srs_record.last_transition_at is not None
+                                else None
+                            ),
+                        },
+                    )
 
         await analytics.track_event(
             user_id=payload["user_id"],

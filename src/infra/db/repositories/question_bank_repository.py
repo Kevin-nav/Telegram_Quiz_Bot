@@ -72,6 +72,44 @@ class QuestionBankRepository:
             )
             return list(result.scalars().all())
 
+    async def list_ready_question_manifest(self, course_id: str) -> list[dict]:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(
+                    QuestionBank.id.label("source_question_id"),
+                    QuestionBank.question_key,
+                    QuestionBank.topic_id,
+                    QuestionBank.scaled_score,
+                    QuestionBank.band,
+                    QuestionBank.cognitive_level,
+                    QuestionBank.processing_complexity,
+                    QuestionBank.distractor_complexity,
+                    QuestionBank.note_reference,
+                    QuestionBank.question_type,
+                    QuestionBank.option_count,
+                    QuestionBank.has_latex,
+                )
+                .where(
+                    QuestionBank.course_id == course_id,
+                    QuestionBank.status == "ready",
+                )
+                .order_by(QuestionBank.id.asc())
+            )
+            return [dict(row._mapping) for row in result.all()]
+
+    async def list_questions_by_keys(self, question_keys: Sequence[str]) -> list[QuestionBank]:
+        keys = list(dict.fromkeys(question_keys))
+        if not keys:
+            return []
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(QuestionBank)
+                .options(selectinload(QuestionBank.asset_variants))
+                .where(QuestionBank.question_key.in_(keys))
+            )
+            return list(result.scalars().all())
+
     async def get_question(self, question_key: str) -> QuestionBank | None:
         async with self.session_factory() as session:
             return await self._get_question_by_key(session, question_key)

@@ -1,7 +1,8 @@
 from collections import defaultdict
 from collections.abc import Iterable
+from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from src.infra.db.models.question_attempt import QuestionAttempt
 from src.infra.db.session import AsyncSessionLocal
@@ -70,6 +71,48 @@ class QuestionAttemptRepository:
             for attempt in result.scalars().all():
                 grouped[attempt.question_id].append(attempt)
             return dict(grouped)
+
+    async def summarize_attempts_for_questions(
+        self,
+        *,
+        user_id: int,
+        question_ids: Iterable[int],
+        bot_id: str | None = None,
+    ) -> dict[int, object]:
+        question_ids = list(question_ids)
+        if not question_ids:
+            return {}
+
+        async with self.session_factory() as session:
+            wrong_attempt_case = case((QuestionAttempt.is_correct.is_(False), 1), else_=0)
+            last_wrong_at_case = case(
+                (QuestionAttempt.is_correct.is_(False), QuestionAttempt.created_at),
+                else_=None,
+            )
+            statement = (
+                select(
+                    QuestionAttempt.question_id,
+                    func.count(QuestionAttempt.id),
+                    func.sum(wrong_attempt_case),
+                    func.max(last_wrong_at_case),
+                )
+                .where(
+                    QuestionAttempt.user_id == user_id,
+                    QuestionAttempt.question_id.in_(question_ids),
+                )
+                .group_by(QuestionAttempt.question_id)
+            )
+            if bot_id is not None:
+                statement = statement.where(QuestionAttempt.bot_id == bot_id)
+            result = await session.execute(statement)
+            return {
+                int(question_id): SimpleNamespace(
+                    total_attempts=int(total_attempts or 0),
+                    wrong_attempts=int(wrong_attempts or 0),
+                    last_wrong_at=last_wrong_at,
+                )
+                for question_id, total_attempts, wrong_attempts, last_wrong_at in result.all()
+            }
 
     async def list_attempts_for_user(
         self,

@@ -6,6 +6,7 @@ from src.infra.db.repositories.audit_log_repository import AuditLogRepository
 from src.infra.db.repositories.question_bank_repository import QuestionBankRepository
 from src.infra.db.session import AsyncSessionLocal
 from src.infra.redis.admin_cache_store import AdminCacheStore
+from src.infra.redis.state_store import InteractiveStateStore
 
 from sqlalchemy import select
 
@@ -19,11 +20,13 @@ class AdminQuestionService:
         question_repository: QuestionBankRepository | None = None,
         audit_log_repository: AuditLogRepository | None = None,
         cache_store: AdminCacheStore | None = None,
+        state_store: InteractiveStateStore | None = None,
         session_factory=AsyncSessionLocal,
     ):
         self.question_repository = question_repository or QuestionBankRepository()
         self.audit_log_repository = audit_log_repository or AuditLogRepository()
         self.cache_store = cache_store or AdminCacheStore(redis_client)
+        self.state_store = state_store
         self.session_factory = session_factory
 
     async def list_questions(
@@ -111,6 +114,11 @@ class AdminQuestionService:
         await self.cache_store.bump_version("questions-list", bot_id=None)
         await self.cache_store.bump_version("reports-list", bot_id=active_bot_id)
         await self.cache_store.bump_version("reports-detail", bot_id=active_bot_id)
+        state_store = self.state_store
+        if state_store is None and active_bot_id is not None:
+            state_store = InteractiveStateStore(redis_client, bot_id=active_bot_id)
+        if state_store is not None:
+            await state_store.invalidate_course_question_manifest(after_model.course_id)
         return after_payload
 
     async def _load_course_names(self, course_ids: set[str]) -> dict[str, str]:

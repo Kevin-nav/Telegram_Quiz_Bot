@@ -41,12 +41,27 @@ def question_bank_cache_key(course_id: str) -> str:
     return f"question-bank:{course_id}"
 
 
+def course_question_manifest_key(
+    course_id: str,
+    bot_id: str = TANJAH_BOT_ID,
+) -> str:
+    return f"course-question-manifest:{bot_id}:{course_id}"
+
+
 def adaptive_snapshot_key(
     user_id: int,
     course_id: str,
     bot_id: str = TANJAH_BOT_ID,
 ) -> str:
     return f"adaptive-snapshot:{bot_id}:{user_id}:{course_id}"
+
+
+def selector_snapshot_key(
+    user_id: int,
+    course_id: str,
+    bot_id: str = TANJAH_BOT_ID,
+) -> str:
+    return f"selector-snapshot:{bot_id}:{user_id}:{course_id}"
 
 
 def adaptive_update_lock_key(

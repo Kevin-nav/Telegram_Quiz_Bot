@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ from src.workers.background_jobs import (
     review_empirical_difficulty,
     review_time_allocation,
 )
+from tests.fakes import FakeRedis
 
 
 def make_question(**overrides):
@@ -237,6 +239,86 @@ async def test_completed_quiz_progress_increments_quiz_counter():
         bot_id="adarkwa",
     )
     assert track_event.await_args.kwargs["bot_id"] == "adarkwa"
+
+
+@pytest.mark.asyncio
+async def test_persist_quiz_attempt_updates_selector_snapshot_when_runtime_exists():
+    payload = {
+        "session_id": "session-1",
+        "user_id": 42,
+        "bot_id": "adarkwa",
+        "course_id": "linear-electronics",
+        "question_id": "linear-electronics-q1",
+        "source_question_id": 17,
+        "question_index": 0,
+        "selected_option_ids": [1],
+        "selected_option_text": "A",
+        "correct_option_id": 1,
+        "is_correct": True,
+        "time_taken_seconds": 12.0,
+        "time_allocated_seconds": 45,
+        "metadata": {
+            "topic_id": "op_amp_basics",
+            "scaled_score": 2.0,
+            "band": 2,
+            "cognitive_level": "Understanding",
+            "processing_complexity": 1.0,
+            "distractor_complexity": 1.2,
+            "note_reference": 1.0,
+            "question_type": "MCQ",
+            "option_count": 4,
+            "has_latex": False,
+        },
+    }
+    runtime = SimpleNamespace(
+        redis=FakeRedis(),
+        state_store=SimpleNamespace(
+            acquire_adaptive_update_lock=AsyncMock(return_value="lock-token"),
+            release_adaptive_update_lock=AsyncMock(),
+            record_selector_attempt=AsyncMock(),
+        ),
+    )
+    now = datetime(2026, 4, 8, tzinfo=timezone.utc)
+    persisted_attempt = SimpleNamespace(created_at=now)
+    srs_record = SimpleNamespace(
+        box=1,
+        last_presented_at=now,
+        last_correct_at=now,
+        last_transition_at=now,
+    )
+
+    with (
+        patch(
+            "src.workers.background_jobs.question_attempt_repository.create_attempt",
+            new=AsyncMock(return_value=persisted_attempt),
+        ),
+        patch(
+            "src.workers.background_jobs.question_attempt_repository.list_attempts_for_question",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "src.workers.background_jobs.student_question_srs_repository.get",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "src.workers.background_jobs.student_question_srs_repository.upsert",
+            new=AsyncMock(return_value=srs_record),
+        ),
+        patch(
+            "src.workers.background_jobs.analytics.track_event",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.domains.adaptive.service.AdaptiveLearningService.apply_attempt_update",
+            new=AsyncMock(),
+        ),
+    ):
+        await persist_quiz_attempt(payload, runtime=runtime)
+
+    runtime.state_store.record_selector_attempt.assert_awaited_once()
+    record_kwargs = runtime.state_store.record_selector_attempt.await_args.kwargs
+    assert record_kwargs["question_key"] == "linear-electronics-q1"
+    assert record_kwargs["srs_state"]["box"] == 1
 
 
 @pytest.mark.asyncio

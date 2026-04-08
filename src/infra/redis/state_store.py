@@ -12,12 +12,14 @@ from src.infra.redis.keys import (
     adaptive_snapshot_key,
     adaptive_update_lock_key,
     analytics_dedupe_key,
+    course_question_manifest_key,
     pending_report_note_key,
     poll_map_key,
     question_bank_cache_key,
     report_draft_key,
     quiz_session_key,
     quiz_session_lock_key,
+    selector_snapshot_key,
     telegram_update_key,
     user_profile_key,
 )
@@ -30,6 +32,8 @@ POLL_MAP_TTL_SECONDS = 60 * 60
 REPORT_DRAFT_TTL_SECONDS = 30 * 60
 LOCK_TTL_SECONDS = 15
 ADAPTIVE_SNAPSHOT_TTL_SECONDS = 10 * 60
+COURSE_QUESTION_MANIFEST_TTL_SECONDS = 60 * 60
+SELECTOR_SNAPSHOT_TTL_SECONDS = 30 * 60
 CATALOG_LOOKUP_TTL_SECONDS = 60 * 60
 CATALOG_CACHE_NAMESPACE_VERSION = "v2"
 
@@ -237,6 +241,36 @@ class InteractiveStateStore:
         self._set_local(question_bank_cache_key(course_id), questions, 3600)
         return questions
 
+    async def get_course_question_manifest(self, course_id: str) -> list[dict] | None:
+        key = course_question_manifest_key(course_id, self.bot_id)
+        cached = self._get_local(key)
+        if cached is not None:
+            return cached
+
+        payload = await self.redis_client.get(key)
+        if not payload:
+            return None
+
+        await self._refresh_expiry(key, COURSE_QUESTION_MANIFEST_TTL_SECONDS)
+        manifest = json.loads(payload)
+        self._set_local(key, manifest, COURSE_QUESTION_MANIFEST_TTL_SECONDS)
+        return manifest
+
+    async def set_course_question_manifest(
+        self,
+        course_id: str,
+        manifest: list[dict],
+        ttl_seconds: int = COURSE_QUESTION_MANIFEST_TTL_SECONDS,
+    ) -> None:
+        key = course_question_manifest_key(course_id, self.bot_id)
+        await self.redis_client.set(key, json.dumps(manifest), ex=ttl_seconds)
+        self._set_local(key, manifest, ttl_seconds)
+
+    async def invalidate_course_question_manifest(self, course_id: str) -> None:
+        key = course_question_manifest_key(course_id, self.bot_id)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
+
     async def get_adaptive_snapshot(self, user_id: int, course_id: str) -> dict | None:
         key = adaptive_snapshot_key(user_id, course_id, self.bot_id)
         cached = self._get_local(key)
@@ -270,6 +304,79 @@ class InteractiveStateStore:
         key = adaptive_snapshot_key(user_id, course_id, self.bot_id)
         await self._delete_key(key)
         self._local_cache.pop(key, None)
+
+    async def get_selector_snapshot(self, user_id: int, course_id: str) -> dict | None:
+        key = selector_snapshot_key(user_id, course_id, self.bot_id)
+        cached = self._get_local(key)
+        if cached is not None:
+            return cached
+
+        payload = await self.redis_client.get(key)
+        if not payload:
+            return None
+
+        await self._refresh_expiry(key, SELECTOR_SNAPSHOT_TTL_SECONDS)
+        snapshot = json.loads(payload)
+        self._set_local(key, snapshot, SELECTOR_SNAPSHOT_TTL_SECONDS)
+        return snapshot
+
+    async def set_selector_snapshot(
+        self,
+        user_id: int,
+        course_id: str,
+        snapshot: dict,
+        ttl_seconds: int = SELECTOR_SNAPSHOT_TTL_SECONDS,
+    ) -> None:
+        key = selector_snapshot_key(user_id, course_id, self.bot_id)
+        await self.redis_client.set(key, json.dumps(snapshot), ex=ttl_seconds)
+        self._set_local(key, snapshot, ttl_seconds)
+
+    async def invalidate_selector_snapshot(self, user_id: int, course_id: str) -> None:
+        key = selector_snapshot_key(user_id, course_id, self.bot_id)
+        await self._delete_key(key)
+        self._local_cache.pop(key, None)
+
+    async def record_selector_attempt(
+        self,
+        *,
+        user_id: int,
+        course_id: str,
+        question_key: str,
+        is_correct: bool,
+        created_at,
+        srs_state: dict | None = None,
+    ) -> None:
+        snapshot = await self.get_selector_snapshot(user_id, course_id)
+        if snapshot is None:
+            return
+
+        attempts_by_question = dict(snapshot.get("attempts_by_question") or {})
+        attempt_summary = dict(attempts_by_question.get(question_key) or {})
+        attempt_summary["total_attempts"] = int(attempt_summary.get("total_attempts") or 0) + 1
+        attempt_summary["wrong_attempts"] = int(attempt_summary.get("wrong_attempts") or 0)
+        if not is_correct:
+            attempt_summary["wrong_attempts"] += 1
+            attempt_summary["last_wrong_at"] = created_at.isoformat() if created_at else None
+        attempts_by_question[question_key] = attempt_summary
+        snapshot["attempts_by_question"] = attempts_by_question
+
+        attempted_question_ids = {
+            str(value) for value in (snapshot.get("attempted_question_ids") or [])
+        }
+        attempted_question_ids.add(question_key)
+        snapshot["attempted_question_ids"] = sorted(attempted_question_ids)
+
+        recently_correct = dict(snapshot.get("recently_correct_at_by_question") or {})
+        if is_correct and created_at is not None:
+            recently_correct[question_key] = created_at.isoformat()
+        snapshot["recently_correct_at_by_question"] = recently_correct
+
+        if srs_state is not None:
+            srs_by_question = dict(snapshot.get("srs_by_question") or {})
+            srs_by_question[question_key] = srs_state
+            snapshot["srs_by_question"] = srs_by_question
+
+        await self.set_selector_snapshot(user_id, course_id, snapshot)
 
     async def cache_catalog_faculties(
         self, faculties: list[dict], ttl_seconds: int = CATALOG_LOOKUP_TTL_SECONDS

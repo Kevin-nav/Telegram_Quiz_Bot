@@ -27,11 +27,37 @@ class FakeQuestionRow:
 class CountingQuestionBankRepository:
     def __init__(self, rows):
         self.rows = list(rows)
-        self.calls = 0
+        self.manifest_calls = 0
+        self.hydrate_calls = 0
 
     async def list_ready_questions(self, course_id: str):
-        self.calls += 1
+        self.manifest_calls += 1
         return list(self.rows)
+
+    async def list_ready_question_manifest(self, course_id: str):
+        self.manifest_calls += 1
+        return [
+            {
+                "source_question_id": row.id,
+                "question_key": row.question_key,
+                "topic_id": row.topic_id,
+                "scaled_score": row.scaled_score,
+                "band": row.band,
+                "cognitive_level": row.cognitive_level,
+                "processing_complexity": row.processing_complexity,
+                "distractor_complexity": row.distractor_complexity,
+                "note_reference": row.note_reference,
+                "question_type": row.question_type,
+                "option_count": row.option_count,
+                "has_latex": row.has_latex,
+            }
+            for row in self.rows
+        ]
+
+    async def list_questions_by_keys(self, question_keys):
+        self.hydrate_calls += 1
+        keys = set(question_keys)
+        return [row for row in self.rows if row.question_key in keys]
 
 
 class CountingStudentCourseStateRepository:
@@ -79,7 +105,7 @@ class CountingQuestionAttemptRepository:
     def __init__(self):
         self.calls = 0
 
-    async def list_attempts_for_questions(
+    async def summarize_attempts_for_questions(
         self,
         *,
         user_id: int,
@@ -116,7 +142,8 @@ async def test_selector_uses_batched_repository_calls_only():
     )
 
     assert len(result.selected_questions) == 2
-    assert question_bank_repository.calls == 1
+    assert question_bank_repository.manifest_calls == 1
+    assert question_bank_repository.hydrate_calls == 1
     assert question_attempt_repository.calls == 1
     assert student_course_state_repository.calls == 1
     assert student_question_srs_repository.calls == 1

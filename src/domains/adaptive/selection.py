@@ -149,6 +149,24 @@ def weakness_score(
     question: AdaptiveQuestionProfile,
     attempts: Sequence,
 ) -> float:
+    total_attempts = getattr(attempts, "total_attempts", None)
+    wrong_attempts_count = getattr(attempts, "wrong_attempts", None)
+    last_wrong = getattr(attempts, "last_wrong_at", None)
+    if total_attempts is not None and wrong_attempts_count is not None:
+        total = int(total_attempts)
+        if total <= 0 or int(wrong_attempts_count) <= 0:
+            return 0.0
+
+        error_rate = int(wrong_attempts_count) / total
+        recency = 1.0
+        if last_wrong is not None:
+            current_time = datetime.now(UTC)
+            if getattr(last_wrong, "tzinfo", None) is None:
+                current_time = current_time.replace(tzinfo=None)
+            days_since_last_wrong = max(0.0, (current_time - last_wrong).total_seconds() / 86_400)
+            recency = math.exp(-days_since_last_wrong / 7.0)
+        return min(1.0, error_rate * recency)
+
     history = list(attempts)
     if not history:
         return 0.0

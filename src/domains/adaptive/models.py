@@ -60,3 +60,10 @@ class AttemptRecord:
     is_correct: bool
     arrangement_hash: str | None = None
     config_index: int | None = None
+
+
+@dataclass(slots=True)
+class AttemptHistorySummary:
+    total_attempts: int = 0
+    wrong_attempts: int = 0
+    last_wrong_at: datetime | None = None
