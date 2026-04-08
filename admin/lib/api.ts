@@ -170,6 +170,17 @@ export type AnalyticsSummaryResponse = {
   leaderboard: AnalyticsLeaderboardEntry[];
 };
 
+export type DashboardSummaryResponse = {
+  kpis: AnalyticsKpi[];
+  leaderboard: AnalyticsLeaderboardEntry[];
+  staff_count: number;
+  active_staff_count: number;
+  question_count: number;
+  review_question_count: number;
+  open_reports_count: number;
+  recent_reports: ReportListItem[];
+};
+
 export type StudentProfile = {
   user_id: string;
   display_name: string;
@@ -583,6 +594,10 @@ export async function fetchAnalyticsSummary() {
   return adminFetch<AnalyticsSummaryResponse>("/admin/analytics");
 }
 
+export async function fetchDashboardSummary() {
+  return adminFetch<DashboardSummaryResponse>("/admin/analytics/dashboard");
+}
+
 export async function fetchStudentAnalytics(userId: number) {
   return adminFetch<StudentDetailResponse>(`/admin/analytics/students/${userId}`);
 }
@@ -614,6 +629,7 @@ export const adminApi = {
   listQuestions,
   listReports,
   listStaffUsers,
+  fetchDashboardSummary,
   fetchAnalyticsSummary,
   fetchStudentAnalytics,
   getReport,

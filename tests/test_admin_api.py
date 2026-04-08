@@ -317,16 +317,27 @@ class FakeScopeService:
 
 
 class FakeAnalyticsService:
-    def __init__(self, summary_payload=None, student_payload=None):
+    def __init__(self, summary_payload=None, student_payload=None, dashboard_payload=None):
         self.summary_payload = summary_payload or {
             "kpis": [],
             "daily_usage": [],
             "leaderboard": [],
         }
         self.student_payload = student_payload
+        self.dashboard_payload = dashboard_payload or {
+            "kpis": [],
+            "leaderboard": [],
+            "staff_count": 0,
+            "active_staff_count": 0,
+            "question_count": 0,
+            "review_question_count": 0,
+            "open_reports_count": 0,
+            "recent_reports": [],
+        }
         self.summary_course_codes = None
         self.summary_active_bot_id = None
         self.student_calls = []
+        self.dashboard_calls = []
 
     async def get_summary(self, *, active_bot_id=None, course_codes=None):
         self.summary_active_bot_id = active_bot_id
@@ -336,6 +347,10 @@ class FakeAnalyticsService:
     async def get_student_detail(self, user_id: int, *, active_bot_id=None, course_codes=None):
         self.student_calls.append((user_id, active_bot_id, course_codes))
         return self.student_payload
+
+    async def get_dashboard_summary(self, *, active_bot_id=None, course_codes=None):
+        self.dashboard_calls.append((active_bot_id, course_codes))
+        return self.dashboard_payload
 
 
 class FakeReportService:
@@ -1017,6 +1032,66 @@ async def test_admin_analytics_student_detail_returns_404_when_missing(
 
     assert response.status_code == 404
     assert analytics_service.student_calls == [(999, "adarkwa", {"calculus"})]
+
+
+@pytest.mark.asyncio
+async def test_admin_dashboard_summary_uses_scope_and_permission(async_client, monkeypatch):
+    import src.api.admin_analytics as admin_analytics
+    import src.api.admin_auth as admin_auth
+
+    analytics_service = FakeAnalyticsService(
+        dashboard_payload={
+            "kpis": [],
+            "leaderboard": [],
+            "staff_count": 5,
+            "active_staff_count": 3,
+            "question_count": 40,
+            "review_question_count": 2,
+            "open_reports_count": 7,
+            "recent_reports": [],
+        }
+    )
+    scope_service = FakeScopeService({"calculus"})
+
+    monkeypatch.setattr(
+        admin_auth,
+        "get_auth_service",
+        lambda request: FakeAuthService(
+            principals_by_session_token={
+                "session-303": SimpleNamespace(
+                    staff_user_id=303,
+                    email="analyst@example.com",
+                    display_name="Analyst",
+                    active_bot_id="adarkwa",
+                    role_codes=["analytics_viewer"],
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        admin_auth,
+        "get_permission_service",
+        lambda request: FakePermissionService({303: {"analytics.view"}}),
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_scope_service",
+        lambda request: scope_service,
+    )
+    monkeypatch.setattr(
+        admin_analytics,
+        "get_admin_analytics_service",
+        lambda request: analytics_service,
+    )
+
+    response = await async_client.get(
+        "/admin/analytics/dashboard",
+        cookies={"admin_session": "session-303"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["question_count"] == 40
+    assert analytics_service.dashboard_calls == [("adarkwa", {"calculus"})]
 
 
 @pytest.mark.asyncio

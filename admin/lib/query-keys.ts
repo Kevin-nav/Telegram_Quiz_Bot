@@ -5,6 +5,8 @@ export const adminQueryKeys = {
     ["catalog-tree", botId ?? "unscoped"] as const,
   questions: (botId: string | null | undefined) =>
     ["questions", botId ?? "unscoped"] as const,
+  dashboard: (botId: string | null | undefined) =>
+    ["dashboard", botId ?? "unscoped"] as const,
   analytics: (botId: string | null | undefined) =>
     ["analytics", botId ?? "unscoped"] as const,
   studentAnalytics: (botId: string | null | undefined, userId: number) =>

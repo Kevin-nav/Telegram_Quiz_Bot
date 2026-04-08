@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.cache import redis_client
 from src.infra.db.models.catalog_course import CatalogCourse
@@ -11,6 +11,8 @@ from src.infra.db.models.catalog_faculty import CatalogFaculty
 from src.infra.db.models.catalog_program import CatalogProgram
 from src.infra.db.models.question_attempt import QuestionAttempt
 from src.infra.db.models.question_report import QuestionReport
+from src.infra.db.models.question_bank import QuestionBank
+from src.infra.db.models.staff_user import StaffUser
 from src.infra.db.models.student_course_state import StudentCourseState
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
@@ -23,6 +25,7 @@ from src.infra.db.session import AsyncSessionLocal
 ANALYTICS_SUMMARY_CACHE_TTL_SECONDS = 300
 ANALYTICS_SUMMARY_WINDOW_DAYS = 30
 ANALYTICS_STUDENT_CACHE_TTL_SECONDS = 90
+DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = 120
 
 
 class AdminAnalyticsService:
@@ -270,6 +273,58 @@ class AdminAnalyticsService:
             course_codes=course_codes,
             extra_parts=(user_id,),
             ttl_seconds=ANALYTICS_STUDENT_CACHE_TTL_SECONDS,
+        )
+        return payload
+
+    async def get_dashboard_summary(
+        self,
+        *,
+        active_bot_id: str | None = None,
+        course_codes: set[str] | None = None,
+    ) -> dict:
+        cached = await self.cache_store.get_json(
+            "dashboard-summary",
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+        )
+        if cached is not None:
+            return cached
+
+        analytics_summary = await self.get_summary(
+            active_bot_id=active_bot_id,
+            course_codes=course_codes,
+        )
+        payload = {
+            "kpis": analytics_summary.get("kpis", []),
+            "leaderboard": list(analytics_summary.get("leaderboard", []))[:5],
+            "staff_count": await self._count_staff_users(active_only=False),
+            "active_staff_count": await self._count_staff_users(active_only=True),
+            "question_count": await self._count_questions(
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+            ),
+            "review_question_count": await self._count_questions(
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+                status="needs_review",
+            ),
+            "open_reports_count": await self._count_question_reports(
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+                status="open",
+            ),
+            "recent_reports": await self._list_recent_reports(
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+                limit=3,
+            ),
+        }
+        await self.cache_store.set_json(
+            "dashboard-summary",
+            payload,
+            bot_id=active_bot_id,
+            course_codes=course_codes,
+            ttl_seconds=DASHBOARD_SUMMARY_CACHE_TTL_SECONDS,
         )
         return payload
 
@@ -764,6 +819,109 @@ class AdminAnalyticsService:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
+    async def _count_staff_users(self, *, active_only: bool) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count(StaffUser.id))
+            if active_only:
+                stmt = stmt.where(StaffUser.is_active.is_(True))
+            result = await session.execute(stmt)
+            return int(result.scalar_one() or 0)
+
+    async def _count_questions(
+        self,
+        *,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+        status: str | None = None,
+    ) -> int:
+        if course_codes is not None and not course_codes:
+            return 0
+
+        async with self.session_factory() as session:
+            stmt = select(func.count(QuestionBank.id))
+            if course_codes is not None:
+                stmt = stmt.where(QuestionBank.course_id.in_(sorted(course_codes)))
+            if status is not None:
+                stmt = stmt.where(QuestionBank.status == status)
+            result = await session.execute(stmt)
+            return int(result.scalar_one() or 0)
+
+    async def _count_question_reports(
+        self,
+        *,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+        status: str | None,
+    ) -> int:
+        if course_codes is not None and not course_codes:
+            return 0
+
+        async with self.session_factory() as session:
+            stmt = select(func.count(QuestionReport.id))
+            if active_bot_id is not None:
+                stmt = stmt.where(QuestionReport.bot_id == active_bot_id)
+            if course_codes is not None:
+                stmt = stmt.where(QuestionReport.course_id.in_(sorted(course_codes)))
+            if status is not None:
+                stmt = stmt.where(QuestionReport.report_status == status)
+            result = await session.execute(stmt)
+            return int(result.scalar_one() or 0)
+
+    async def _list_recent_reports(
+        self,
+        *,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+        limit: int,
+    ) -> list[dict]:
+        if course_codes is not None and not course_codes:
+            return []
+
+        async with self.session_factory() as session:
+            stmt = select(QuestionReport)
+            if active_bot_id is not None:
+                stmt = stmt.where(QuestionReport.bot_id == active_bot_id)
+            if course_codes is not None:
+                stmt = stmt.where(QuestionReport.course_id.in_(sorted(course_codes)))
+            stmt = stmt.where(QuestionReport.report_status == "open").order_by(
+                QuestionReport.created_at.desc(),
+                QuestionReport.id.desc(),
+            ).limit(limit)
+            result = await session.execute(stmt)
+            reports = list(result.scalars().all())
+            if not reports:
+                return []
+
+            question_ids = {report.question_id for report in reports if report.question_id is not None}
+            course_ids = {report.course_id for report in reports if report.course_id}
+            user_ids = {report.user_id for report in reports}
+            question_map = await self._load_question_map(question_ids)
+            course_map = await self._load_course_names(course_ids)
+            identity_map = await self._load_telegram_identities(user_ids)
+
+        payload = []
+        for report in reports:
+            question = question_map.get(report.question_id)
+            identity = identity_map.get(report.user_id)
+            payload.append(
+                {
+                    "id": report.id,
+                    "question_id": int(report.question_id or 0),
+                    "question_key": report.question_key,
+                    "question_text": getattr(question, "question_text", None)
+                    or report.question_key,
+                    "course_name": course_map.get(report.course_id)
+                    or self._humanize_code(report.course_id),
+                    "student_username": getattr(identity, "username", None)
+                    or f"user_{report.user_id}",
+                    "student_reasoning": report.report_note
+                    or self._humanize_code(report.report_reason),
+                    "status": report.report_status,
+                    "created_at": report.created_at.isoformat(),
+                }
+            )
+        return payload
+
     async def _load_course_names(self, course_ids: set[str]) -> dict[str, str]:
         if not course_ids:
             return {}
@@ -773,6 +931,16 @@ class AdminAnalyticsService:
                 select(CatalogCourse).where(CatalogCourse.code.in_(sorted(course_ids)))
             )
             return {course.code: course.name for course in result.scalars().all()}
+
+    async def _load_question_map(self, question_ids: set[int]) -> dict[int, QuestionBank]:
+        if not question_ids:
+            return {}
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(QuestionBank).where(QuestionBank.id.in_(sorted(question_ids)))
+            )
+            return {question.id: question for question in result.scalars().all()}
 
     async def _load_users(self, user_ids: set[int]) -> dict[int, User]:
         if not user_ids:

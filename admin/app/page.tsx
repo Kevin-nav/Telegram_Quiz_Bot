@@ -22,14 +22,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AdminShell } from "@/components/admin-shell";
 import { AdminLoadingState } from "@/components/admin-page-state";
 import {
-  fetchAnalyticsSummary,
-  listQuestions,
-  listReports,
-  listStaffUsers,
-  type AnalyticsSummaryResponse,
+  fetchDashboardSummary,
+  type DashboardSummaryResponse,
   type ReportListItem,
-  type QuestionRecord,
-  type AdminStaffUser,
 } from "@/lib/api";
 import { adminQueryKeys } from "@/lib/query-keys";
 import { useAdminPrincipal } from "@/lib/use-admin-principal";
@@ -70,38 +65,17 @@ export default function DashboardPage() {
   const activeBotId = principal?.active_bot_id ?? null;
   const hasBotSelected = Boolean(activeBotId);
 
-  const analyticsQuery = useQuery<AnalyticsSummaryResponse>({
-    queryKey: adminQueryKeys.analytics(activeBotId),
-    queryFn: fetchAnalyticsSummary,
-    enabled: hasBotSelected,
-    staleTime: 60_000,
-  });
-  const staffQuery = useQuery<AdminStaffUser[]>({
-    queryKey: adminQueryKeys.staffUsers(),
-    queryFn: listStaffUsers,
-    staleTime: 60_000,
-  });
-  const questionsQuery = useQuery<QuestionRecord[]>({
-    queryKey: adminQueryKeys.questions(activeBotId),
-    queryFn: listQuestions,
-    enabled: hasBotSelected,
-    staleTime: 120_000,
-  });
-  const reportsQuery = useQuery({
-    queryKey: adminQueryKeys.reports(activeBotId),
-    queryFn: () => listReports(),
+  const dashboardQuery = useQuery<DashboardSummaryResponse>({
+    queryKey: adminQueryKeys.dashboard(activeBotId),
+    queryFn: fetchDashboardSummary,
     enabled: hasBotSelected,
     staleTime: 60_000,
   });
 
-  const analytics = analyticsQuery.data ?? null;
-  const staff = staffQuery.data ?? [];
-  const questions = questionsQuery.data ?? [];
-  const reports = reportsQuery.data?.items ?? [];
-  const openReports = reports.filter((report: ReportListItem) => report.status === "open");
-  const reviewQuestions = questions.filter((question) => question.status === "needs_review");
-  const kpis = analytics?.kpis ?? [];
-  const leaderboard = analytics?.leaderboard ?? [];
+  const dashboard = dashboardQuery.data ?? null;
+  const recentReports = dashboard?.recent_reports ?? [];
+  const kpis = dashboard?.kpis ?? [];
+  const leaderboard = dashboard?.leaderboard ?? [];
 
   // Only block on the principal itself — everything else loads independently
   if (principalQuery.isLoading) {
@@ -144,7 +118,7 @@ export default function DashboardPage() {
 
         {/* KPI Cards — each skeleton independently */}
         {hasBotSelected && (
-          analyticsQuery.isLoading ? (
+          dashboardQuery.isLoading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <Card key={i}>
@@ -159,13 +133,13 @@ export default function DashboardPage() {
                 </Card>
               ))}
             </div>
-          ) : analyticsQuery.isError ? (
+          ) : dashboardQuery.isError ? (
             <Card>
               <CardContent>
                 <SectionError
                   message="Unable to load analytics"
-                  onRetry={() => void analyticsQuery.refetch()}
-                  isRetrying={analyticsQuery.isFetching}
+                  onRetry={() => void dashboardQuery.refetch()}
+                  isRetrying={dashboardQuery.isFetching}
                 />
               </CardContent>
             </Card>
@@ -227,48 +201,48 @@ export default function DashboardPage() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Total Staff</p>
-                  {staffQuery.isLoading ? (
+                  {dashboardQuery.isLoading ? (
                     <Skeleton className="h-6 w-10 mt-1" />
-                  ) : staffQuery.isError ? (
+                  ) : dashboardQuery.isError ? (
                     <p className="text-sm text-destructive mt-1">—</p>
-                  ) : (
+                  ) : dashboard ? (
                     <>
-                      <p className="text-xl font-semibold">{staff.length}</p>
+                      <p className="text-xl font-semibold">{dashboard.staff_count}</p>
                       <p className="text-xs text-muted-foreground">
-                        {staff.filter((s) => s.is_active).length} active
+                        {dashboard.active_staff_count} active
                       </p>
                     </>
-                  )}
+                  ) : null}
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Questions in Bank</p>
-                  {questionsQuery.isLoading ? (
+                  {dashboardQuery.isLoading ? (
                     <Skeleton className="h-6 w-10 mt-1" />
-                  ) : questionsQuery.isError ? (
+                  ) : dashboardQuery.isError ? (
                     <p className="text-sm text-destructive mt-1">—</p>
-                  ) : (
+                  ) : dashboard ? (
                     <>
-                      <p className="text-xl font-semibold">{questions.length}</p>
+                      <p className="text-xl font-semibold">{dashboard.question_count}</p>
                       <p className="text-xs text-muted-foreground">
-                        {reviewQuestions.length} need review
+                        {dashboard.review_question_count} need review
                       </p>
                     </>
-                  )}
+                  ) : null}
                 </div>
                 <div className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Open Reports</p>
-                  {reportsQuery.isLoading ? (
+                  {dashboardQuery.isLoading ? (
                     <Skeleton className="h-6 w-10 mt-1" />
-                  ) : reportsQuery.isError ? (
+                  ) : dashboardQuery.isError ? (
                     <p className="text-sm text-destructive mt-1">—</p>
-                  ) : (
+                  ) : dashboard ? (
                     <>
-                      <p className="text-xl font-semibold">{openReports.length}</p>
+                      <p className="text-xl font-semibold">{dashboard.open_reports_count}</p>
                       <p className="text-xs text-muted-foreground">
                         from students
                       </p>
                     </>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </CardContent>
@@ -287,18 +261,18 @@ export default function DashboardPage() {
               </Button>
             </CardHeader>
             <CardContent className="grid gap-3">
-              {reportsQuery.isLoading ? (
+              {dashboardQuery.isLoading ? (
                 <SectionLoading message="Loading reports..." />
-              ) : reportsQuery.isError ? (
+              ) : dashboardQuery.isError ? (
                 <SectionError
                   message="Unable to load reports"
-                  onRetry={() => void reportsQuery.refetch()}
-                  isRetrying={reportsQuery.isFetching}
+                  onRetry={() => void dashboardQuery.refetch()}
+                  isRetrying={dashboardQuery.isFetching}
                 />
-              ) : openReports.length === 0 ? (
+              ) : recentReports.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No open reports.</p>
               ) : (
-                openReports.slice(0, 3).map((report) => (
+                recentReports.map((report: ReportListItem) => (
                   <div
                     key={report.id}
                     className="flex items-start justify-between gap-3 rounded-lg border p-3"
@@ -323,7 +297,7 @@ export default function DashboardPage() {
 
         {/* Top Students */}
         {hasBotSelected && (
-          analyticsQuery.isLoading ? (
+          dashboardQuery.isLoading ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Top Students</CardTitle>
