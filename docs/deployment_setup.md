@@ -319,69 +319,6 @@ kubectl rollout status deployment/adarkwa-bot-webhook -n adarkwa-study-bot
 kubectl rollout status deployment/adarkwa-bot-worker -n adarkwa-study-bot
 ```
 
-### Targeted Redis Cache Invalidation
-
-For repeatable cache invalidation from your Windows machine, use:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1
-```
-
-The helper SSHes to the VPS, runs inside the live webhook pod, deletes only the Redis keys that match the scope you requested, and can optionally restart the deployments afterward.
-
-Examples:
-
-List the cached Adarkwa Level 100 Electrical course list without deleting it:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1 `
-  -Scope Catalog `
-  -BotId adarkwa `
-  -CatalogBucket courses `
-  -CatalogParts engineering electrical-and-electronics-engineering 100 first `
-  -ListOnly
-```
-
-Delete that exact cached course list and restart the app deployments:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1 `
-  -Scope Catalog `
-  -BotId adarkwa `
-  -CatalogBucket courses `
-  -CatalogParts engineering electrical-and-electronics-engineering 100 first `
-  -RestartDeployments
-```
-
-Delete all course manifests for a single course across bots:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1 `
-  -Scope CourseManifest `
-  -CourseCode instruments-and-measurements `
-  -AllowBroadDelete
-```
-
-Delete all selector snapshots for a course across users and bots:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1 `
-  -Scope SelectorSnapshots `
-  -CourseCode instruments-and-measurements `
-  -AllowBroadDelete
-```
-
-Delete a manually supplied Redis key pattern:
-
-```powershell
-.\scripts\invalidate_redis_cache.ps1 `
-  -Scope Pattern `
-  -Pattern 'course-question-manifest:*:instruments-and-measurements' `
-  -AllowBroadDelete
-```
-
-Broad deletion is blocked unless you pass `-AllowBroadDelete`.
-
 ## 8. Security Notes
 
 Recommended baseline:
