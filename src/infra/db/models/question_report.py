@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, JSON, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.infra.db.base import Base
@@ -8,6 +8,9 @@ from src.infra.db.base import Base
 
 class QuestionReport(Base):
     __tablename__ = "question_reports"
+    __table_args__ = (
+        Index("ix_question_reports_bot_status_created_at", "bot_id", "report_status", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)

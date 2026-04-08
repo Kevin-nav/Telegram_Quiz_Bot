@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.infra.db.base import Base
@@ -8,7 +8,17 @@ from src.infra.db.base import Base
 
 class ProgramCourseOffering(Base):
     __tablename__ = "program_course_offerings"
-    __table_args__ = (UniqueConstraint("program_code", "level_code", "semester_code", "course_code"),)
+    __table_args__ = (
+        UniqueConstraint("program_code", "level_code", "semester_code", "course_code"),
+        Index(
+            "ix_program_course_offerings_program_level_semester_active_course",
+            "program_code",
+            "level_code",
+            "semester_code",
+            "is_active",
+            "course_code",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     program_code: Mapped[str] = mapped_column(

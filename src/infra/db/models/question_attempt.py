@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.infra.db.base import Base
@@ -8,6 +8,16 @@ from src.infra.db.base import Base
 
 class QuestionAttempt(Base):
     __tablename__ = "question_attempts"
+    __table_args__ = (
+        Index("ix_question_attempts_bot_user_created_at", "bot_id", "user_id", "created_at"),
+        Index(
+            "ix_question_attempts_bot_user_question_created_at",
+            "bot_id",
+            "user_id",
+            "question_id",
+            "created_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, JSON, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Index, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.infra.db.base import Base
@@ -8,6 +8,9 @@ from src.infra.db.base import Base
 
 class QuestionBank(Base):
     __tablename__ = "question_bank"
+    __table_args__ = (
+        Index("ix_question_bank_course_status_id", "course_id", "status", "id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     question_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)

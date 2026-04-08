@@ -21,3 +21,24 @@ def test_canonical_database_import_registers_question_bank_tables():
     assert "staff_catalog_access" in table_names
     assert "audit_logs" in table_names
     assert "user_bot_profiles" in table_names
+
+
+def test_hot_path_indexes_are_registered():
+    from src.infra.db.models.program_course_offering import ProgramCourseOffering
+    from src.infra.db.models.question_attempt import QuestionAttempt
+    from src.infra.db.models.question_bank import QuestionBank
+    from src.infra.db.models.question_report import QuestionReport
+
+    question_bank_indexes = {index.name for index in QuestionBank.__table__.indexes}
+    question_attempt_indexes = {index.name for index in QuestionAttempt.__table__.indexes}
+    question_report_indexes = {index.name for index in QuestionReport.__table__.indexes}
+    offering_indexes = {index.name for index in ProgramCourseOffering.__table__.indexes}
+
+    assert "ix_question_bank_course_status_id" in question_bank_indexes
+    assert "ix_question_attempts_bot_user_created_at" in question_attempt_indexes
+    assert "ix_question_attempts_bot_user_question_created_at" in question_attempt_indexes
+    assert "ix_question_reports_bot_status_created_at" in question_report_indexes
+    assert (
+        "ix_program_course_offerings_program_level_semester_active_course"
+        in offering_indexes
+    )
