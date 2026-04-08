@@ -426,8 +426,18 @@ class FakeQuestionRepo:
     async def get_question(self, question_key: str):
         return self.questions.get(question_key)
 
-    async def list_questions(self, *, course_id=None, status=None, limit=100, offset=0):
+    async def list_questions(
+        self,
+        *,
+        course_id=None,
+        status=None,
+        course_codes=None,
+        limit=100,
+        offset=0,
+    ):
         items = list(self.questions.values())
+        if course_codes is not None:
+            items = [question for question in items if question.course_id in course_codes]
         if course_id is not None:
             items = [question for question in items if question.course_id == course_id]
         if status is not None:
@@ -1277,11 +1287,8 @@ async def test_admin_questions_list_filters_by_active_bot_catalog_scope(
     )
     monkeypatch.setattr(
         admin_questions,
-        "get_permission_service",
-        lambda request: FakePermissionService(
-            {102: {"questions.view"}},
-            catalog_access={(102, "adarkwa"): {"calculus"}},
-        ),
+        "get_admin_scope_service",
+        lambda request: FakeScopeService({"calculus"}),
     )
     monkeypatch.setattr(
         admin_questions,

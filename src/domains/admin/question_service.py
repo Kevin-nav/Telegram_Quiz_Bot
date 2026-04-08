@@ -31,12 +31,14 @@ class AdminQuestionService:
         *,
         course_id: str | None = None,
         status: str | None = None,
+        course_codes: set[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict]:
         cached = await self.cache_store.get_json(
             "questions-list",
             bot_id=None,
+            course_codes=course_codes,
             extra_parts=(course_id, status, limit, offset),
         )
         if cached is not None:
@@ -45,6 +47,7 @@ class AdminQuestionService:
         questions = await self.question_repository.list_questions(
             course_id=course_id,
             status=status,
+            course_codes=course_codes,
             limit=limit,
             offset=offset,
         )
@@ -58,6 +61,7 @@ class AdminQuestionService:
             "questions-list",
             payload,
             bot_id=None,
+            course_codes=course_codes,
             extra_parts=(course_id, status, limit, offset),
             ttl_seconds=QUESTION_LIST_CACHE_TTL_SECONDS,
         )

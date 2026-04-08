@@ -81,11 +81,16 @@ class QuestionBankRepository:
         *,
         course_id: str | None = None,
         status: str | None = None,
+        course_codes: set[str] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[QuestionBank]:
         async with self.session_factory() as session:
             stmt = select(QuestionBank)
+            if course_codes is not None:
+                if not course_codes:
+                    return []
+                stmt = stmt.where(QuestionBank.course_id.in_(sorted(course_codes)))
             if course_id is not None:
                 stmt = stmt.where(QuestionBank.course_id == course_id)
             if status is not None:

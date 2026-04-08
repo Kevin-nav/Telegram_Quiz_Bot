@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.cache import redis_client
 from src.infra.db.models.catalog_course import CatalogCourse
@@ -50,11 +50,15 @@ class AdminReportService:
         reports = await self._list_reports(
             active_bot_id=active_bot_id,
             course_codes=course_codes,
+            status=status,
+            limit=limit,
+            offset=offset,
         )
-        open_count = sum(1 for report in reports if report.report_status == "open")
-        if status:
-            reports = [report for report in reports if report.report_status == status]
-        reports = reports[offset : offset + limit]
+        open_count = await self._count_reports(
+            active_bot_id=active_bot_id,
+            course_codes=course_codes,
+            status="open",
+        )
         payload = {
             "items": await self._serialize_reports(reports),
             "count": len(reports),
@@ -154,21 +158,49 @@ class AdminReportService:
         *,
         active_bot_id: str | None,
         course_codes: set[str] | None,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[QuestionReport]:
         if course_codes is not None and not course_codes:
             return []
 
         async with self.session_factory() as session:
-            stmt = select(QuestionReport).order_by(
+            stmt = self._apply_report_filters(
+                select(QuestionReport),
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+                status=status,
+            ).order_by(
                 QuestionReport.created_at.desc(),
                 QuestionReport.id.desc(),
             )
-            if active_bot_id is not None:
-                stmt = stmt.where(QuestionReport.bot_id == active_bot_id)
-            if course_codes is not None:
-                stmt = stmt.where(QuestionReport.course_id.in_(sorted(course_codes)))
+            if offset is not None:
+                stmt = stmt.offset(offset)
+            if limit is not None:
+                stmt = stmt.limit(limit)
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def _count_reports(
+        self,
+        *,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+        status: str | None = None,
+    ) -> int:
+        if course_codes is not None and not course_codes:
+            return 0
+
+        async with self.session_factory() as session:
+            stmt = self._apply_report_filters(
+                select(func.count(QuestionReport.id)),
+                active_bot_id=active_bot_id,
+                course_codes=course_codes,
+                status=status,
+            )
+            result = await session.execute(stmt)
+            return int(result.scalar_one() or 0)
 
     async def _get_report(
         self,
@@ -203,6 +235,22 @@ class AdminReportService:
             stmt = stmt.where(QuestionReport.course_id.in_(sorted(course_codes)))
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    def _apply_report_filters(
+        self,
+        stmt,
+        *,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+        status: str | None,
+    ):
+        if active_bot_id is not None:
+            stmt = stmt.where(QuestionReport.bot_id == active_bot_id)
+        if course_codes is not None:
+            stmt = stmt.where(QuestionReport.course_id.in_(sorted(course_codes)))
+        if status is not None:
+            stmt = stmt.where(QuestionReport.report_status == status)
+        return stmt
 
     async def _serialize_reports(self, reports: list[QuestionReport]) -> list[dict]:
         if not reports:

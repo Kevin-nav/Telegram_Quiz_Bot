@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from src.api.admin_auth import get_permission_service, require_admin_permission
 from src.domains.admin.auth_service import AdminPrincipal
 from src.domains.admin.question_service import AdminQuestionService
+from src.domains.admin.scope_service import AdminScopeService
 
 
 router = APIRouter(prefix="/admin/questions", tags=["admin-questions"])
@@ -12,6 +13,10 @@ router = APIRouter(prefix="/admin/questions", tags=["admin-questions"])
 
 def get_admin_question_service(_request: Request) -> AdminQuestionService:
     return AdminQuestionService()
+
+
+def get_admin_scope_service(_request: Request) -> AdminScopeService:
+    return AdminScopeService()
 
 
 @router.get("")
@@ -23,25 +28,16 @@ async def list_questions(
     offset: int = Query(default=0, ge=0),
     principal: AdminPrincipal = Depends(require_admin_permission("questions.view")),
 ):
+    scope_service = get_admin_scope_service(request)
+    course_codes = await scope_service.resolve_course_codes_for_principal(principal)
     service = get_admin_question_service(request)
     items = await service.list_questions(
         course_id=course_id,
         status=status_filter,
+        course_codes=course_codes,
         limit=limit,
         offset=offset,
     )
-    bot_id = getattr(principal, "active_bot_id", None)
-    if bot_id:
-        permission_service = get_permission_service(request)
-        filtered_items = []
-        for item in items:
-            if await permission_service.user_can_access_bot_catalog_scope(
-                principal.staff_user_id,
-                bot_id,
-                course_code=item.get("course_id"),
-            ):
-                filtered_items.append(item)
-        items = filtered_items
     return {"items": items, "count": len(items)}
 
 
