@@ -8,8 +8,8 @@ import { Providers } from "@/components/providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Adarkwa Admin",
-  description: "Staff operations console for the Adarkwa Study Bot.",
+  title: "Telegram Bot Console",
+  description: "Staff operations console for shared Telegram bot administration.",
 };
 
 export default function RootLayout({

@@ -70,7 +70,7 @@ export default function SetPasswordPage() {
           <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <ShieldCheck className="size-5" />
           </div>
-          <span className="text-lg font-semibold tracking-tight">Adarkwa Admin</span>
+          <span className="text-lg font-semibold tracking-tight">Telegram Bot Console</span>
         </div>
 
         <Card className="border-border/50">

@@ -16,6 +16,20 @@ export function middleware(request: NextRequest) {
 
   const session = request.cookies.get("admin_session")?.value;
 
+  if (pathname === "/login" && session) {
+    const rootUrl = request.nextUrl.clone();
+    rootUrl.pathname = "/";
+    rootUrl.search = "";
+    return NextResponse.redirect(rootUrl);
+  }
+
+  if (pathname === "/set-password" && !session) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.searchParams.set("next", "/set-password");
+    return NextResponse.redirect(loginUrl);
+  }
+
   if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
   }

@@ -93,6 +93,8 @@ class FakeAdminSessionRepository:
 
     async def touch_session(self, session_token_hash: str, *, last_seen_at):
         self.touched_hashes.append((session_token_hash, last_seen_at))
+        if session_token_hash in self.sessions_by_hash:
+            self.sessions_by_hash[session_token_hash].last_seen_at = last_seen_at
         return 1
 
     async def revoke_session(self, session_token_hash: str, *, revoked_at):
@@ -164,6 +166,62 @@ async def test_auth_service_login_and_session_principal_include_bot_scope():
     assert session_principal.staff_user_id == 101
     assert session_principal.active_bot_id == "tanjah"
     assert len(session_repo.touched_hashes) == 1
+
+
+@pytest.mark.asyncio
+async def test_auth_service_skips_session_touch_when_recently_seen():
+    password_service = PasswordService()
+    user = SimpleNamespace(
+        id=103,
+        email="reviewer@example.com",
+        display_name="Reviewer User",
+        is_active=True,
+        password_hash=password_service.hash_password("temp-password"),
+        must_change_password=False,
+        last_selected_bot_id="adarkwa",
+        last_login_at=None,
+    )
+    staff_repo = FakeStaffUserRepository(
+        [user],
+        roles_by_user={103: ["content_editor"]},
+    )
+    permission_repo = FakePermissionRepository(
+        {103: ["questions.view"]}
+    )
+    bot_access_repo = FakeStaffBotAccessRepository(
+        {103: ["adarkwa"]}
+    )
+    session_repo = FakeAdminSessionRepository()
+    session_service = SessionService(lifetime=timedelta(hours=1))
+    auth_service = AuthService(
+        staff_user_repository=staff_repo,
+        permission_repository=permission_repo,
+        staff_bot_access_repository=bot_access_repo,
+        admin_session_repository=session_repo,
+        password_service=password_service,
+        session_service=session_service,
+    )
+    now = datetime(2026, 4, 4, 12, 0, tzinfo=UTC)
+
+    login_result = await auth_service.login(
+        "reviewer@example.com",
+        "temp-password",
+        now=now,
+    )
+
+    assert login_result is not None
+    _, session_token = login_result
+    session_hash = session_service.hash_session_token(session_token)
+    session_repo.sessions_by_hash[session_hash].last_seen_at = now
+
+    session_principal = await auth_service.get_principal_for_session_token(
+        session_token,
+        now=now + timedelta(minutes=2),
+    )
+
+    assert session_principal is not None
+    assert session_principal.staff_user_id == 103
+    assert session_repo.touched_hashes == []
 
 
 @pytest.mark.asyncio

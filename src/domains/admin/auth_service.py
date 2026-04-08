@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from datetime import timedelta
 
 from src.bot.runtime_config import ADARKWA_BOT_ID
 from src.domains.admin.password_service import PasswordService
@@ -28,6 +29,8 @@ class AdminPrincipal:
 
 
 class AuthService:
+    _session_touch_interval = timedelta(minutes=5)
+
     def __init__(
         self,
         staff_user_repository: StaffUserRepository | None = None,
@@ -140,10 +143,16 @@ class AuthService:
         if admin_session is None:
             return None
 
-        await self.admin_session_repository.touch_session(
-            session_token_hash,
-            last_seen_at=checked_at,
+        last_seen_at = getattr(admin_session, "last_seen_at", None)
+        should_touch_session = (
+            last_seen_at is None
+            or checked_at - last_seen_at >= self._session_touch_interval
         )
+        if should_touch_session:
+            await self.admin_session_repository.touch_session(
+                session_token_hash,
+                last_seen_at=checked_at,
+            )
         return await self.get_principal(admin_session.staff_user_id)
 
     async def logout(self, session_token: str, *, now: datetime | None = None) -> None:

@@ -2,36 +2,25 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import type { FormEvent } from "react";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { ShieldCheck, Loader2 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchAdminPrincipal, loginAdmin } from "@/lib/api";
+import { loginAdmin } from "@/lib/api";
+import { adminQueryKeys } from "@/lib/query-keys";
 
 function LoginForm() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const principalQuery = useQuery({
-    queryKey: ["admin-principal"],
-    queryFn: fetchAdminPrincipal,
-    retry: false,
-  });
-
   const nextPath = searchParams.get("next") || "/";
-
-  useEffect(() => {
-    if (principalQuery.data) {
-      const destination = principalQuery.data.must_change_password ? "/set-password" : nextPath;
-      router.replace(destination);
-    }
-  }, [nextPath, principalQuery.data, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,6 +34,7 @@ function LoginForm() {
     setIsSubmitting(true);
     try {
       const principal = await loginAdmin(email, password);
+      queryClient.setQueryData(adminQueryKeys.principal(), principal);
       const destination = principal.must_change_password ? "/set-password" : nextPath;
       router.replace(destination);
       router.refresh();
@@ -62,7 +52,7 @@ function LoginForm() {
           <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <ShieldCheck className="size-5" />
           </div>
-          <span className="text-lg font-semibold tracking-tight">Adarkwa Admin</span>
+          <span className="text-lg font-semibold tracking-tight">Telegram Bot Console</span>
         </div>
 
         <Card className="border-border/50">
@@ -80,7 +70,7 @@ function LoginForm() {
                   id="email"
                   name="email"
                   type="email"
-                  placeholder="you@staff.adarkwa.edu"
+                  placeholder="you@staff.example.com"
                   autoComplete="email"
                   autoFocus
                   value={email}
