@@ -13,7 +13,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
@@ -42,7 +42,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic French I (`basic-french`) - ready questions: 100
 - Calculus (`calculus`) - ready questions: 0
@@ -59,7 +59,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
@@ -72,7 +72,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic Electronics (`basic-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -102,7 +102,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -121,7 +121,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Analytical Chemistry (`analytical-chemistry`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
@@ -141,7 +141,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -161,7 +161,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Analytical Chemistry (`analytical-chemistry`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
@@ -181,7 +181,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -212,7 +212,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
 
@@ -226,7 +226,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -245,7 +245,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
@@ -266,7 +266,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -284,7 +284,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Applied Electronics (`applied-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -302,7 +302,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
 
@@ -324,7 +324,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic French I (`basic-french`) - ready questions: 100
 - Basic French II (`basic-french-2`) - ready questions: 0
@@ -369,7 +369,7 @@ This file lists the current backend faculty/programme/course catalog and marks e
 
 #### Level 100 - First Semester
 
-- Academic Writing (`academic-writing`) - ready questions: 0
+- Communication Skills (`academic-writing`) - ready questions: 0
 - Applied Electricity (`applied-electricity`) - ready questions: 100
 - Basic Electronics (`basic-electronics`) - ready questions: 0
 - Basic French I (`basic-french`) - ready questions: 100
@@ -435,3 +435,4 @@ This file lists the current backend faculty/programme/course catalog and marks e
 - `SD` -> Statistical Data Science (`statistical-data-science`), timetable rows: 200
 - `SP` -> Spatial Planning (`spatial-planning`), timetable rows: 68
 - `TC` -> Unmapped in backend catalog; programme/faculty not confirmed from the current handbook extraction. Timetable rows: 32; examples: TC 1 | TC 111 | Grammar and Usage I, TC 1 | TC 119 | Lexis and Structure 1, TC 1 | TC 113 | Comprehension and Summary I, TC 1 | TC 117 | Composition (Oral and Written) I, TC 1 | TC 115 | Reading and Dicstation I
+

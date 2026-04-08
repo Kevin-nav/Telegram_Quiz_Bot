@@ -12,6 +12,14 @@ def _slugify(value: str, *, default: str = "item") -> str:
     return normalized or default
 
 
+def _resolve_distractor_complexity(payload: dict) -> float:
+    if payload.get("distractor_complexity") is not None:
+        return float(payload["distractor_complexity"])
+    if payload.get("question_type") == "T/F" and payload.get("statement_clarity") is not None:
+        return float(payload["statement_clarity"])
+    raise KeyError("distractor_complexity")
+
+
 @dataclass(slots=True)
 class ImportedQuestion:
     question_text: str
@@ -53,7 +61,7 @@ class ImportedQuestion:
                 else None
             ),
             note_reference=float(payload["note_reference"]),
-            distractor_complexity=float(payload["distractor_complexity"]),
+            distractor_complexity=_resolve_distractor_complexity(payload),
             processing_complexity=float(payload["processing_complexity"]),
             negative_stem=float(payload.get("negative_stem", 0.0)),
             cognitive_level=str(payload["cognitive_level"]),

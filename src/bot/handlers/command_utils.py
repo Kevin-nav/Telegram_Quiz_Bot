@@ -7,11 +7,13 @@ from telegram.ext import ContextTypes
 from src.bot.copy import (
     build_incomplete_study_profile_message,
     build_missing_course_message,
+    build_no_quiz_courses_available_message,
     build_quiz_course_prompt,
 )
 from src.bot.handlers.home import ACTIVE_INTERACTIVE_MESSAGE_ID_KEY
 from src.bot.keyboards import build_home_keyboard, build_quiz_course_keyboard
 from src.bot.runtime_config import BOT_CONFIG_KEY, BotThemeConfig
+from src.domains.catalog.learner_service import LearnerCatalogService
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -55,7 +57,7 @@ def get_catalog_service(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> CatalogNavigationService:
     return context.application.bot_data.get(
-        "catalog_service", CatalogNavigationService()
+        "catalog_service", LearnerCatalogService()
     )
 
 
@@ -144,7 +146,7 @@ async def reply_with_quiz_entry_message(
             has_active_quiz=getattr(user, "has_active_quiz", False),
         )
         reply = await update.message.reply_text(
-            text=build_missing_course_message(),
+            text=build_no_quiz_courses_available_message(),
             reply_markup=build_home_keyboard(home["buttons"]),
         )
         remember_reply_message(context, reply)

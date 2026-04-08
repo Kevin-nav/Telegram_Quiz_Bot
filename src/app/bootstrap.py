@@ -12,6 +12,7 @@ from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID
 from src.cache import redis_client
 from src.core.config import Settings, get_settings
 from src.database import AsyncSessionLocal, engine
+from src.domains.catalog.learner_service import LearnerCatalogService
 from src.domains.catalog.service import CatalogService
 from src.domains.home.service import HomeService
 from src.domains.performance.service import PerformanceService
@@ -78,11 +79,13 @@ def configure_application_services(state: ApplicationState) -> None:
     for bot_id, telegram_app in _get_telegram_apps(state).items():
         state_store = _get_state_store_for_bot(state, bot_id)
         bot_config = telegram_app.bot_data.get(BOT_CONFIG_KEY)
-        telegram_app.bot_data["catalog_service"] = CatalogService(
-            state_store=state_store,
-            allowed_course_codes=getattr(bot_config, "allowed_course_codes", ()),
-            fixed_faculty_code=getattr(bot_config, "fixed_faculty_code", None),
-            fixed_level_code=getattr(bot_config, "fixed_level_code", None),
+        telegram_app.bot_data["catalog_service"] = LearnerCatalogService(
+            catalog_service=CatalogService(
+                state_store=state_store,
+                allowed_course_codes=getattr(bot_config, "allowed_course_codes", ()),
+                fixed_faculty_code=getattr(bot_config, "fixed_faculty_code", None),
+                fixed_level_code=getattr(bot_config, "fixed_level_code", None),
+            )
         )
         telegram_app.bot_data["home_service"] = HomeService(
             button_labels=getattr(getattr(bot_config, "theme", None), "button_labels", None)

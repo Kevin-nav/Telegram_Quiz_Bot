@@ -55,6 +55,43 @@ async def test_navigation_service_reads_programs_from_catalog_service():
     ]
 
 
+@pytest.mark.asyncio
+async def test_learner_catalog_service_hides_courses_without_ready_questions():
+    from src.domains.catalog.learner_service import LearnerCatalogService
+
+    class FakeCatalogService:
+        async def get_courses(
+            self,
+            faculty_code: str,
+            program_code: str,
+            level_code: str,
+            semester_code: str,
+        ):
+            return [
+                {"code": "linear-electronics", "name": "Linear Electronics"},
+                {"code": "thermodynamics", "name": "Thermodynamics"},
+            ]
+
+    class FakeQuestionBankRepository:
+        async def list_course_ids_with_ready_questions(self, course_ids):
+            assert sorted(course_ids) == ["linear-electronics", "thermodynamics"]
+            return {"linear-electronics"}
+
+    service = LearnerCatalogService(
+        catalog_service=FakeCatalogService(),
+        question_bank_repository=FakeQuestionBankRepository(),
+    )
+
+    courses = await service.get_courses(
+        faculty_code="engineering",
+        program_code="mechanical-engineering",
+        level_code="200",
+        semester_code="first",
+    )
+
+    assert courses == [{"code": "linear-electronics", "name": "Linear Electronics"}]
+
+
 def test_catalog_seed_payload_exports_normalized_entities():
     from src.domains.catalog.data import build_catalog_seed_payload
 
@@ -67,6 +104,35 @@ def test_catalog_seed_payload_exports_normalized_entities():
     assert payload["courses"]
     assert payload["offerings"]
     assert any(course["code"] == "programming-in-matlab" for course in payload["courses"])
+
+
+def test_catalog_seed_payload_includes_instruments_for_eee_and_telecom():
+    from src.domains.catalog.data import build_catalog_seed_payload
+
+    payload = build_catalog_seed_payload()
+
+    offerings = {
+        (
+            offering["program_code"],
+            offering["level_code"],
+            offering["semester_code"],
+            offering["course_code"],
+        )
+        for offering in payload["offerings"]
+    }
+
+    assert (
+        "electrical-and-electronics-engineering",
+        "100",
+        "first",
+        "instruments-and-measurements",
+    ) in offerings
+    assert (
+        "telecommunications-engineering",
+        "100",
+        "first",
+        "instruments-and-measurements",
+    ) in offerings
 
 
 @pytest.mark.asyncio

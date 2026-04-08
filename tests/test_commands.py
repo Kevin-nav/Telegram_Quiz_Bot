@@ -94,6 +94,36 @@ async def test_quiz_command_shows_course_picker_and_updates_active_message():
 
 
 @pytest.mark.asyncio
+async def test_quiz_command_shows_no_available_courses_message_when_filtered_empty():
+    user = SimpleNamespace(
+        id=42,
+        faculty_code="engineering",
+        program_code="electrical-and-electronics-engineering",
+        level_code="200",
+        semester_code="first",
+        has_active_quiz=False,
+    )
+    message = FakeMessage()
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "catalog_service": FakeCatalogService(courses=[]),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=42),
+        message=message,
+    )
+
+    await quiz_command(update, context)
+
+    assert "no courses with questions are available" in message.calls[0]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_quiz_command_invalidates_active_quiz_report_buttons():
     store = InteractiveStateStore(FakeRedis())
     session = QuizSessionState(

@@ -19,7 +19,7 @@ from src.bot.handlers.quiz import handle_poll_answer
 from src.bot.handlers.start import start_command
 from src.bot.runtime_config import BOT_CONFIG_KEY, BotRuntimeConfig
 from src.config import BOT_CONFIGS, DEFAULT_BOT_CONFIG
-from src.domains.catalog.navigation_service import CatalogNavigationService
+from src.domains.catalog.learner_service import LearnerCatalogService
 from src.domains.home.service import HomeService
 from src.domains.performance.service import PerformanceService
 from src.domains.profile.service import ProfileService
@@ -78,7 +78,7 @@ def get_application(
     bot_config = bot_config or DEFAULT_BOT_CONFIG
     application = Application.builder().token(bot_config.telegram_bot_token).build()
     application.bot_data[BOT_CONFIG_KEY] = bot_config
-    application.bot_data["catalog_service"] = CatalogNavigationService()
+    application.bot_data["catalog_service"] = LearnerCatalogService()
     application.bot_data["profile_service"] = ProfileService(bot_id=bot_config.bot_id)
     application.bot_data["home_service"] = HomeService()
     application.bot_data["performance_service"] = PerformanceService(bot_id=bot_config.bot_id)

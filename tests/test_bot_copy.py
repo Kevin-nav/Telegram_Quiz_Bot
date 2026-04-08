@@ -1,6 +1,7 @@
 from src.bot.copy import (
     build_help_message,
     build_home_message,
+    build_no_quiz_courses_available_message,
     build_welcome_message,
 )
 from src.bot.runtime_config import DEFAULT_BOT_THEMES
@@ -39,3 +40,9 @@ def test_help_copy_uses_bot_specific_home_labels():
 
     assert "Start Practice" in message
     assert "Study Setup" in message
+
+
+def test_no_quiz_courses_available_copy_is_specific():
+    message = build_no_quiz_courses_available_message()
+
+    assert "no courses with questions are available" in message.lower()

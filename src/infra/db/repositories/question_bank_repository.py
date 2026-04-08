@@ -97,6 +97,25 @@ class QuestionBankRepository:
             )
             return [dict(row._mapping) for row in result.all()]
 
+    async def list_course_ids_with_ready_questions(
+        self,
+        course_ids: Sequence[str],
+    ) -> set[str]:
+        unique_course_ids = sorted({course_id for course_id in course_ids if course_id})
+        if not unique_course_ids:
+            return set()
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(QuestionBank.course_id)
+                .where(
+                    QuestionBank.course_id.in_(unique_course_ids),
+                    QuestionBank.status == "ready",
+                )
+                .distinct()
+            )
+            return {course_id for course_id in result.scalars().all() if course_id}
+
     async def list_questions_by_keys(self, question_keys: Sequence[str]) -> list[QuestionBank]:
         keys = list(dict.fromkeys(question_keys))
         if not keys:

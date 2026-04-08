@@ -117,7 +117,7 @@ FACULTIES = [
 
 _DOCUMENTED_COURSE_PROGRAMS = [
     (
-        "Academic Writing",
+        "Communication Skills",
         [
             "cyber-security",
             "information-systems-and-technology",
@@ -340,6 +340,10 @@ _ENGINEERING_100_FIRST_SEMESTER_COURSES = {
     "electrical-and-electronics-engineering": [
         {"code": "applied-electricity", "name": "Applied Electricity"},
         {"code": "basic-french", "name": "Basic French I"},
+        {
+            "code": "instruments-and-measurements",
+            "name": "Instruments and Measurements",
+        },
         {"code": "linear-algebra", "name": "Linear Algebra"},
     ],
     "mechanical-engineering": [

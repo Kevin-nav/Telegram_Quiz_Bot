@@ -177,6 +177,29 @@ async def test_start_quiz_from_home_shows_profile_courses_with_async_catalog_ser
 
 
 @pytest.mark.asyncio
+async def test_start_quiz_from_home_shows_no_available_courses_message_when_filtered_empty():
+    user = _make_user()
+    query = FakeQuery("home:start_quiz")
+    context = SimpleNamespace(
+        application=SimpleNamespace(
+            bot_data={
+                "profile_service": FakeProfileService(user),
+                "catalog_service": FakeCatalogService(courses=[]),
+            }
+        ),
+        user_data={},
+    )
+    update = SimpleNamespace(
+        callback_query=query,
+        effective_user=SimpleNamespace(id=42),
+    )
+
+    await handle_home_callback(update, context)
+
+    assert "no courses with questions are available" in query.calls[-1]["text"].lower()
+
+
+@pytest.mark.asyncio
 async def test_selecting_quiz_course_prompts_for_length():
     user = _make_user()
     query = FakeQuery("quiz:course:linear-electronics")

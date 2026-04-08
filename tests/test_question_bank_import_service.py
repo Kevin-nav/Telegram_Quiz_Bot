@@ -223,6 +223,47 @@ async def test_import_service_continues_after_invalid_row_and_imports_valid_rows
 
 
 @pytest.mark.asyncio
+async def test_import_service_infers_tf_distractor_complexity_from_statement_clarity(
+    tmp_path,
+):
+    json_path = tmp_path / "scored_cleaned.json"
+    row = make_base_row(
+        options=["True", "False"],
+        correct_option_text="True",
+        option_count=2,
+        question_type="T/F",
+        negative_stem=0.0,
+        distractor_complexity=1.2,
+        statement_clarity=1.2,
+    )
+    row.pop("distractor_complexity")
+    json_path.write_text(
+        json.dumps([row]),
+        encoding="utf-8",
+    )
+
+    repository = FakeRepository()
+    service = QuestionBankImportService(
+        repository=repository,
+        asset_service=FakeAssetService(),
+        question_renderer=fake_question_renderer,
+        explanation_renderer=fake_explanation_renderer,
+        variant_builder=fake_variant_builder,
+        variant_order_builder=fake_variant_order_builder,
+        latex_to_png_renderer=fake_latex_to_png_renderer,
+    )
+
+    report = await service.import_course_from_json(
+        course_id="instruments-and-measurements",
+        course_slug="instruments-and-measurements",
+        json_path=json_path,
+    )
+
+    assert report.successful_rows == 1
+    assert repository.upserts[0]["distractor_complexity"] == 1.2
+
+
+@pytest.mark.asyncio
 async def test_import_service_marks_latex_row_error_when_render_fails(tmp_path):
     json_path = tmp_path / "scored_cleaned.json"
     json_path.write_text(

@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 from src.bot.callbacks import parse_callback
 from src.bot.keyboards import build_home_keyboard, build_setup_keyboard
 from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID, BotRuntimeConfig
+from src.domains.catalog.learner_service import LearnerCatalogService
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -27,7 +28,7 @@ def _get_catalog_service(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> CatalogNavigationService:
     return context.application.bot_data.get(
-        "catalog_service", CatalogNavigationService()
+        "catalog_service", LearnerCatalogService()
     )
 
 

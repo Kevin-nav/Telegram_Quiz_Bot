@@ -224,6 +224,10 @@ def build_missing_course_message() -> str:
     return "Choose your course first so the bot knows where to start."
 
 
+def build_no_quiz_courses_available_message() -> str:
+    return "No courses with questions are available for your current study setup yet."
+
+
 def build_quiz_course_prompt(program_name: str | None, level_name: str | None) -> str:
     details = ", ".join(part for part in (program_name, level_name) if part)
     if details:

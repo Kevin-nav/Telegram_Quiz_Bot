@@ -9,6 +9,7 @@ from src.bot.copy import (
     build_home_message,
     build_incomplete_study_profile_message,
     build_missing_course_message,
+    build_no_quiz_courses_available_message,
     build_no_questions_available_message,
     build_performance_message,
     build_quiz_course_prompt,
@@ -22,6 +23,7 @@ from src.bot.keyboards import (
     build_setup_keyboard,
 )
 from src.bot.runtime_config import BOT_CONFIG_KEY, TANJAH_BOT_ID, BotRuntimeConfig
+from src.domains.catalog.learner_service import LearnerCatalogService
 from src.domains.catalog.navigation_service import CatalogNavigationService
 from src.domains.home.service import HomeService
 from src.domains.profile.service import ProfileService
@@ -56,7 +58,7 @@ def _get_catalog_service(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> CatalogNavigationService:
     return context.application.bot_data.get(
-        "catalog_service", CatalogNavigationService()
+        "catalog_service", LearnerCatalogService()
     )
 
 
@@ -336,7 +338,7 @@ async def handle_home_callback(
             courses = await _get_profile_courses(context, user)
             if not courses:
                 await query.edit_message_text(
-                    text=build_missing_course_message(),
+                    text=build_no_quiz_courses_available_message(),
                     reply_markup=build_home_keyboard(
                         _get_home_service(context).build_home(
                             _build_home_profile(user),
