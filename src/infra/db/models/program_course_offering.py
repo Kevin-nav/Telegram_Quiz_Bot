@@ -11,7 +11,7 @@ class ProgramCourseOffering(Base):
     __table_args__ = (
         UniqueConstraint("program_code", "level_code", "semester_code", "course_code"),
         Index(
-            "ix_program_course_offerings_program_level_semester_active_course",
+            "ix_pco_program_level_semester_active_course",
             "program_code",
             "level_code",
             "semester_code",

@@ -42,7 +42,7 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        "ix_program_course_offerings_program_level_semester_active_course",
+        "ix_pco_program_level_semester_active_course",
         "program_course_offerings",
         ["program_code", "level_code", "semester_code", "is_active", "course_code"],
         unique=False,
@@ -51,7 +51,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
-        "ix_program_course_offerings_program_level_semester_active_course",
+        "ix_pco_program_level_semester_active_course",
         table_name="program_course_offerings",
     )
     op.drop_index(

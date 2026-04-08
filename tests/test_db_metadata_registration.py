@@ -38,7 +38,4 @@ def test_hot_path_indexes_are_registered():
     assert "ix_question_attempts_bot_user_created_at" in question_attempt_indexes
     assert "ix_question_attempts_bot_user_question_created_at" in question_attempt_indexes
     assert "ix_question_reports_bot_status_created_at" in question_report_indexes
-    assert (
-        "ix_program_course_offerings_program_level_semester_active_course"
-        in offering_indexes
-    )
+    assert "ix_pco_program_level_semester_active_course" in offering_indexes
