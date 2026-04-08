@@ -18,6 +18,10 @@ from src.infra.db.repositories.student_course_state_repository import (
     StudentCourseStateRepository,
 )
 from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
+from src.infra.db.repositories.student_session_summary_repository import (
+    StudentSessionSummaryRepository,
+)
+from src.infra.db.repositories.user_repository import UserRepository
 from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.redis.idempotency import AdaptiveAttemptIdempotencyStore
 
@@ -29,6 +33,8 @@ adaptive_learning_service = AdaptiveLearningService()
 adaptive_review_repository = AdaptiveReviewRepository()
 student_course_state_repository = StudentCourseStateRepository()
 student_question_srs_repository = StudentQuestionSrsRepository()
+student_session_summary_repository = StudentSessionSummaryRepository()
+user_repository = UserRepository()
 admin_cache_store = AdminCacheStore(redis_client)
 
 
@@ -225,13 +231,27 @@ async def persist_quiz_attempt(payload: dict, runtime=None) -> None:
                         },
                     )
 
+        attempt_occurred_at = getattr(persisted_attempt, "created_at", None) or datetime.now(UTC)
+        if source_question_id is not None:
+            await student_course_state_repository.record_attempt_metrics(
+                payload["user_id"],
+                payload["course_id"],
+                bot_id=payload.get("bot_id"),
+                is_correct=payload["is_correct"],
+                time_taken_seconds=payload.get("time_taken_seconds"),
+            )
+        await user_repository.touch_activity(
+            payload["user_id"],
+            occurred_at=attempt_occurred_at,
+        )
+
         await analytics.track_event(
             user_id=payload["user_id"],
             event_type="quiz_attempt_persisted",
             metadata=payload,
             bot_id=payload.get("bot_id"),
         )
-        await admin_cache_store.bump_version(
+        await admin_cache_store.mark_dirty(
             "analytics-summary",
             bot_id=payload.get("bot_id"),
         )
@@ -317,11 +337,47 @@ async def review_time_allocation(payload: dict, attempts: list) -> None:
 async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
     logger.info("Persisting quiz session progress payload=%s", payload)
     if payload.get("status") == "completed":
+        completed_at_raw = payload.get("completed_at")
+        completed_at = (
+            datetime.fromisoformat(completed_at_raw)
+            if completed_at_raw
+            else datetime.now(UTC)
+        )
         await student_course_state_repository.increment_counters(
             payload["user_id"],
             payload["course_id"],
             bot_id=payload.get("bot_id"),
             quizzes=1,
+        )
+        attempts = await question_attempt_repository.list_attempts_for_session(
+            session_id=payload["session_id"],
+            user_id=payload["user_id"],
+            bot_id=payload.get("bot_id"),
+        )
+        timed_attempts = [
+            float(attempt.time_taken_seconds)
+            for attempt in attempts
+            if attempt.time_taken_seconds is not None
+        ]
+        correct_count = sum(1 for attempt in attempts if attempt.is_correct)
+        total_questions = int(payload.get("total_questions") or len(attempts))
+        await student_session_summary_repository.upsert_summary(
+            session_id=payload["session_id"],
+            user_id=payload["user_id"],
+            course_id=payload["course_id"],
+            bot_id=payload.get("bot_id"),
+            total_questions=total_questions,
+            correct_count=correct_count,
+            avg_time_seconds=(
+                round(sum(timed_attempts) / len(timed_attempts), 1)
+                if timed_attempts
+                else None
+            ),
+            completed_at=completed_at,
+        )
+        await user_repository.touch_activity(
+            payload["user_id"],
+            occurred_at=completed_at,
         )
         if runtime is not None:
             await runtime.state_store.invalidate_adaptive_snapshot(
@@ -334,7 +390,7 @@ async def persist_quiz_session_progress(payload: dict, runtime=None) -> None:
         metadata=payload,
         bot_id=payload.get("bot_id"),
     )
-    await admin_cache_store.bump_version(
+    await admin_cache_store.mark_dirty(
         "analytics-summary",
         bot_id=payload.get("bot_id"),
     )
@@ -399,12 +455,20 @@ async def precompute_admin_analytics(payload: dict | None = None) -> None:
     from src.domains.admin.analytics_service import AdminAnalyticsService
 
     service = AdminAnalyticsService()
-    bot_ids = [TANJAH_BOT_ID, ADARKWA_BOT_ID]
+    if payload and payload.get("bot_id") is not None:
+        bot_ids = [payload["bot_id"]]
+    else:
+        bot_ids = [TANJAH_BOT_ID, ADARKWA_BOT_ID]
+    course_codes_payload = payload.get("course_codes") if payload else None
+    course_codes = set(course_codes_payload) if course_codes_payload else None
 
     for bot_id in bot_ids:
         try:
             logger.info("Precomputing analytics summary for bot_id=%s", bot_id)
-            await service.precompute_summary(active_bot_id=bot_id)
+            await service.precompute_summary(
+                active_bot_id=bot_id,
+                course_codes=course_codes,
+            )
             logger.info("Analytics summary precomputed for bot_id=%s", bot_id)
         except Exception:
             logger.exception(

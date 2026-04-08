@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from src.tasks.worker import WorkerSettings, process_telegram_update
+from src.tasks.worker import WorkerSettings, precompute_admin_analytics, process_telegram_update
 
 
 @pytest.mark.asyncio
@@ -33,3 +33,15 @@ def test_worker_registers_question_report_job():
     function_names = {function.__name__ for function in WorkerSettings.functions}
 
     assert "persist_question_report" in function_names
+    assert "precompute_admin_analytics" in function_names
+
+
+@pytest.mark.asyncio
+async def test_precompute_admin_analytics_forwards_payload_to_background_job():
+    with patch(
+        "src.tasks.worker.handle_precompute_admin_analytics",
+        new=AsyncMock(),
+    ) as handler:
+        await precompute_admin_analytics({}, {"bot_id": "adarkwa", "course_codes": ["signals"]})
+
+    handler.assert_awaited_once_with({"bot_id": "adarkwa", "course_codes": ["signals"]})

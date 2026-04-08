@@ -105,6 +105,14 @@ async def test_persisted_attempt_includes_arrangement_hash_or_config_index():
             "src.workers.background_jobs.analytics.track_event",
             new=AsyncMock(),
         ) as track_event,
+        patch(
+            "src.workers.background_jobs.student_course_state_repository.record_attempt_metrics",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.user_repository.touch_activity",
+            new=AsyncMock(),
+        ),
     ):
         await persist_quiz_attempt(payload)
 
@@ -226,6 +234,18 @@ async def test_completed_quiz_progress_increments_quiz_counter():
             new=AsyncMock(),
         ) as increment_counters,
         patch(
+            "src.workers.background_jobs.question_attempt_repository.list_attempts_for_session",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "src.workers.background_jobs.student_session_summary_repository.upsert_summary",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.user_repository.touch_activity",
+            new=AsyncMock(),
+        ),
+        patch(
             "src.workers.background_jobs.analytics.track_event",
             new=AsyncMock(),
         ) as track_event,
@@ -239,6 +259,53 @@ async def test_completed_quiz_progress_increments_quiz_counter():
         bot_id="adarkwa",
     )
     assert track_event.await_args.kwargs["bot_id"] == "adarkwa"
+
+
+@pytest.mark.asyncio
+async def test_completed_quiz_progress_persists_session_summary():
+    payload = {
+        "session_id": "session-1",
+        "user_id": 42,
+        "bot_id": "adarkwa",
+        "course_id": "linear-electronics",
+        "status": "completed",
+        "total_questions": 3,
+        "completed_at": "2026-04-08T00:00:00+00:00",
+    }
+    attempts = [
+        SimpleNamespace(is_correct=True, time_taken_seconds=10.0),
+        SimpleNamespace(is_correct=False, time_taken_seconds=20.0),
+        SimpleNamespace(is_correct=True, time_taken_seconds=14.0),
+    ]
+
+    with (
+        patch(
+            "src.workers.background_jobs.student_course_state_repository.increment_counters",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.question_attempt_repository.list_attempts_for_session",
+            new=AsyncMock(return_value=attempts),
+        ),
+        patch(
+            "src.workers.background_jobs.student_session_summary_repository.upsert_summary",
+            new=AsyncMock(),
+        ) as upsert_summary,
+        patch(
+            "src.workers.background_jobs.user_repository.touch_activity",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.analytics.track_event",
+            new=AsyncMock(),
+        ),
+    ):
+        await persist_quiz_session_progress(payload)
+
+    summary_kwargs = upsert_summary.await_args.kwargs
+    assert summary_kwargs["session_id"] == "session-1"
+    assert summary_kwargs["correct_count"] == 2
+    assert summary_kwargs["avg_time_seconds"] == 14.7
 
 
 @pytest.mark.asyncio
@@ -310,6 +377,14 @@ async def test_persist_quiz_attempt_updates_selector_snapshot_when_runtime_exist
         ),
         patch(
             "src.domains.adaptive.service.AdaptiveLearningService.apply_attempt_update",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.student_course_state_repository.record_attempt_metrics",
+            new=AsyncMock(),
+        ),
+        patch(
+            "src.workers.background_jobs.user_repository.touch_activity",
             new=AsyncMock(),
         ),
     ):

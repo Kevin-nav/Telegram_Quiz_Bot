@@ -20,6 +20,7 @@ from src.infra.db.models.staff_user import StaffUser
 from src.infra.db.models.staff_user_permission import StaffUserPermission
 from src.infra.db.models.staff_user_role import StaffUserRole
 from src.infra.db.models.student_course_state import StudentCourseState
+from src.infra.db.models.student_session_summary import StudentSessionSummary
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
 from src.infra.db.models.user_bot_profile import UserBotProfile
@@ -49,6 +50,7 @@ __all__ = [
     "StaffUserPermission",
     "StaffUserRole",
     "StudentCourseState",
+    "StudentSessionSummary",
     "StudentQuestionSrs",
     "TelegramIdentity",
     "UserBotProfile",

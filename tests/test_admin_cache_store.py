@@ -73,3 +73,31 @@ async def test_admin_cache_store_bump_version_invalidates_cached_payloads():
         bot_id="adarkwa",
         extra_parts=("open", 100, 0),
     ) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_cache_store_tracks_dirty_and_refresh_state():
+    redis = FakeRedis()
+    store = AdminCacheStore(redis)
+
+    await store.set_json(
+        "analytics-summary",
+        {"kpis": []},
+        bot_id="adarkwa",
+        ttl_seconds=60,
+    )
+    await store.mark_dirty("analytics-summary", bot_id="adarkwa")
+
+    assert await store.is_dirty("analytics-summary", bot_id="adarkwa") is True
+    assert await store.claim_refresh("analytics-summary", bot_id="adarkwa") is True
+    assert await store.claim_refresh("analytics-summary", bot_id="adarkwa") is False
+
+    await store.set_json(
+        "analytics-summary",
+        {"kpis": [{"label": "Active"}]},
+        bot_id="adarkwa",
+        ttl_seconds=60,
+    )
+
+    assert await store.is_dirty("analytics-summary", bot_id="adarkwa") is False
+    assert await store.claim_refresh("analytics-summary", bot_id="adarkwa") is True

@@ -14,12 +14,14 @@ from src.infra.db.models.question_report import QuestionReport
 from src.infra.db.models.question_bank import QuestionBank
 from src.infra.db.models.staff_user import StaffUser
 from src.infra.db.models.student_course_state import StudentCourseState
+from src.infra.db.models.student_session_summary import StudentSessionSummary
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.models.telegram_identity import TelegramIdentity
 from src.infra.db.models.user_bot_profile import UserBotProfile
 from src.infra.db.models.user import User
 from src.infra.redis.admin_cache_store import AdminCacheStore
 from src.infra.db.session import AsyncSessionLocal
+from src.tasks.arq_client import enqueue_precompute_admin_analytics
 
 
 ANALYTICS_SUMMARY_CACHE_TTL_SECONDS = 300
@@ -50,6 +52,18 @@ class AdminAnalyticsService:
             course_codes=course_codes,
         )
         if cached is not None:
+            if await self.cache_store.is_dirty("analytics-summary", bot_id=active_bot_id):
+                claimed = await self.cache_store.claim_refresh(
+                    "analytics-summary",
+                    bot_id=active_bot_id,
+                )
+                if claimed:
+                    await enqueue_precompute_admin_analytics(
+                        {
+                            "bot_id": active_bot_id,
+                            "course_codes": sorted(course_codes) if course_codes is not None else None,
+                        }
+                    )
             return cached
 
         # Cache miss — compute synchronously but with a time window cap
@@ -122,6 +136,11 @@ class AdminAnalyticsService:
             active_bot_id=active_bot_id,
             course_codes=course_codes,
         )
+        session_summaries = await self._list_session_summaries(
+            user_id=user_id,
+            active_bot_id=active_bot_id,
+            course_codes=course_codes,
+        )
         reports = await self._list_question_reports(
             user_id=user_id,
             active_bot_id=active_bot_id,
@@ -148,14 +167,27 @@ class AdminAnalyticsService:
             attempts_by_course[attempt.course_id].append(attempt)
 
         states_by_course = {state.course_id: state for state in course_states}
-        streak_current, streak_longest = self._streak_stats(
-            {self._as_date(attempt.created_at) for attempt in attempts}
+        if user is not None and hasattr(user, "current_streak") and hasattr(user, "longest_streak"):
+            streak_current = int(getattr(user, "current_streak", 0) or 0)
+            streak_longest = int(getattr(user, "longest_streak", 0) or 0)
+        else:
+            streak_current, streak_longest = self._streak_stats(
+                {self._as_date(attempt.created_at) for attempt in attempts}
+            )
+        total_attempts_answered = sum(
+            int(getattr(state, "total_attempts", 0) or 0) for state in course_states
         )
-        total_correct = sum(1 for attempt in attempts if attempt.is_correct)
+        total_correct = sum(
+            int(getattr(state, "total_correct", 0) or 0) for state in course_states
+        )
+        if total_attempts_answered <= 0:
+            total_attempts_answered = len(attempts)
+        if total_correct <= 0:
+            total_correct = sum(1 for attempt in attempts if attempt.is_correct)
         total_quizzes_completed = sum(
             int(getattr(state, "total_quizzes_completed", 0) or 0) for state in course_states
         )
-        last_active_at = self._resolve_last_active_at(
+        last_active_at = getattr(user, "last_active_at", None) or self._resolve_last_active_at(
             attempts=attempts,
             reports=reports,
             user=user,
@@ -187,7 +219,7 @@ class AdminAnalyticsService:
             "last_active_at": self._isoformat(last_active_at or datetime.now(UTC)),
             "current_streak": streak_current,
             "longest_streak": streak_longest,
-            "total_questions_answered": len(attempts),
+            "total_questions_answered": total_attempts_answered,
             "total_correct": total_correct,
             "total_quizzes_completed": total_quizzes_completed,
             "reports_filed": len(reports),
@@ -204,16 +236,20 @@ class AdminAnalyticsService:
         for course_id in ordered_course_ids:
             course_attempts = attempts_by_course.get(course_id, [])
             state = states_by_course.get(course_id)
-            total_attempts = len(course_attempts)
-            total_course_correct = sum(1 for attempt in course_attempts if attempt.is_correct)
+            total_attempts = int(getattr(state, "total_attempts", 0) or 0)
+            if total_attempts <= 0:
+                total_attempts = len(course_attempts)
+            total_course_correct = int(getattr(state, "total_correct", 0) or 0)
+            if total_course_correct <= 0:
+                total_course_correct = sum(1 for attempt in course_attempts if attempt.is_correct)
             timed_attempts = [
                 float(attempt.time_taken_seconds)
                 for attempt in course_attempts
                 if attempt.time_taken_seconds is not None
             ]
-            avg_time = (
-                round(sum(timed_attempts) / len(timed_attempts), 1) if timed_attempts else 0.0
-            )
+            avg_time = getattr(state, "avg_time_per_question", None)
+            if avg_time is None:
+                avg_time = round(sum(timed_attempts) / len(timed_attempts), 1) if timed_attempts else 0.0
             overall_skill = (
                 float(getattr(state, "overall_skill", 0) or 0)
                 if state is not None
@@ -257,7 +293,11 @@ class AdminAnalyticsService:
                 course_codes=course_codes,
                 course_names=course_names,
             ),
-            "weekly_progress": self._build_weekly_progress(attempts, weeks=12),
+            "weekly_progress": (
+                self._build_weekly_progress_from_sessions(session_summaries, weeks=12)
+                if session_summaries
+                else self._build_weekly_progress(attempts, weeks=12)
+            ),
             "daily_activity": self._build_daily_activity(attempts, days=30),
             "recent_attempts": self._build_recent_attempts(
                 attempts=attempts,
@@ -600,6 +640,47 @@ class AdminAnalyticsService:
             )
         return payload
 
+    def _build_weekly_progress_from_sessions(
+        self,
+        session_summaries: list[StudentSessionSummary],
+        *,
+        weeks: int,
+    ) -> list[dict]:
+        today = datetime.now(UTC).date()
+        start_of_week = today - timedelta(days=today.weekday())
+        week_starts = [
+            start_of_week - timedelta(weeks=index) for index in range(weeks - 1, -1, -1)
+        ]
+        buckets: dict[date, list[StudentSessionSummary]] = defaultdict(list)
+        for summary in session_summaries:
+            day = self._as_date(summary.completed_at)
+            week_start = day - timedelta(days=day.weekday())
+            if week_start >= week_starts[0]:
+                buckets[week_start].append(summary)
+
+        payload = []
+        for week_start in week_starts:
+            summaries = buckets.get(week_start, [])
+            total_attempts = sum(int(summary.total_questions or 0) for summary in summaries)
+            total_correct = sum(int(summary.correct_count or 0) for summary in summaries)
+            timed_sessions = [
+                float(summary.avg_time_seconds)
+                for summary in summaries
+                if summary.avg_time_seconds is not None
+            ]
+            payload.append(
+                {
+                    "week": week_start.strftime("%b %d"),
+                    "attempts": total_attempts,
+                    "correct": total_correct,
+                    "accuracy": self._accuracy_percent(total_correct, total_attempts),
+                    "avg_time": round(sum(timed_sessions) / len(timed_sessions), 1)
+                    if timed_sessions
+                    else 0.0,
+                }
+            )
+        return payload
+
     def _build_daily_activity(self, attempts: list[QuestionAttempt], *, days: int) -> list[dict]:
         today = datetime.now(UTC).date()
         start = today - timedelta(days=days - 1)
@@ -752,6 +833,28 @@ class AdminAnalyticsService:
             if course_codes is not None:
                 stmt = stmt.where(StudentCourseState.course_id.in_(sorted(course_codes)))
             stmt = stmt.order_by(StudentCourseState.course_id.asc())
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def _list_session_summaries(
+        self,
+        *,
+        user_id: int,
+        active_bot_id: str | None,
+        course_codes: set[str] | None,
+    ) -> list[StudentSessionSummary]:
+        async with self.session_factory() as session:
+            stmt = select(StudentSessionSummary).where(StudentSessionSummary.user_id == user_id)
+            if active_bot_id is not None:
+                stmt = stmt.where(StudentSessionSummary.bot_id == active_bot_id)
+            if course_codes is not None:
+                if not course_codes:
+                    return []
+                stmt = stmt.where(StudentSessionSummary.course_id.in_(sorted(course_codes)))
+            stmt = stmt.order_by(
+                StudentSessionSummary.completed_at.desc(),
+                StudentSessionSummary.id.desc(),
+            )
             result = await session.execute(stmt)
             return list(result.scalars().all())
 

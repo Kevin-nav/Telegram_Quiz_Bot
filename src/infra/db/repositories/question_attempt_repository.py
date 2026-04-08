@@ -133,3 +133,20 @@ class QuestionAttemptRepository:
                 statement = statement.limit(limit)
             result = await session.execute(statement)
             return list(result.scalars().all())
+
+    async def list_attempts_for_session(
+        self,
+        *,
+        session_id: str,
+        user_id: int | None = None,
+        bot_id: str | None = None,
+    ) -> list[QuestionAttempt]:
+        async with self.session_factory() as session:
+            statement = select(QuestionAttempt).where(QuestionAttempt.session_id == session_id)
+            if user_id is not None:
+                statement = statement.where(QuestionAttempt.user_id == user_id)
+            if bot_id is not None:
+                statement = statement.where(QuestionAttempt.bot_id == bot_id)
+            statement = statement.order_by(QuestionAttempt.question_index.asc(), QuestionAttempt.id.asc())
+            result = await session.execute(statement)
+            return list(result.scalars().all())

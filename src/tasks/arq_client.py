@@ -97,3 +97,8 @@ async def enqueue_rebuild_profile_cache(payload: dict):
 async def enqueue_persist_user_profile(payload: dict):
     pool = await get_arq_pool()
     await pool.enqueue_job("persist_user_profile", payload)
+
+
+async def enqueue_precompute_admin_analytics(payload: dict | None = None):
+    pool = await get_arq_pool()
+    await pool.enqueue_job("precompute_admin_analytics", payload)

@@ -7,6 +7,8 @@ from src.infra.db.repositories.question_bank_repository import QuestionBankRepos
 from src.infra.db.repositories.staff_user_repository import StaffUserRepository
 from src.infra.db.repositories.student_course_state_repository import StudentCourseStateRepository
 from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
+from src.infra.db.repositories.student_session_summary_repository import StudentSessionSummaryRepository
+from src.infra.db.repositories.user_repository import UserRepository
 
 __all__ = [
     "AdaptiveReviewRepository",
@@ -18,4 +20,6 @@ __all__ = [
     "StaffUserRepository",
     "StudentCourseStateRepository",
     "StudentQuestionSrsRepository",
+    "StudentSessionSummaryRepository",
+    "UserRepository",
 ]

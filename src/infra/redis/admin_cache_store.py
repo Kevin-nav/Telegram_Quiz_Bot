@@ -53,12 +53,60 @@ class AdminCacheStore:
                 version=version,
             )
             await self.redis_client.set(key, json.dumps(value), ex=ttl_seconds)
+            await self.clear_dirty(namespace, bot_id=bot_id)
+            await self.complete_refresh(namespace, bot_id=bot_id)
         except Exception:
             return
 
     async def bump_version(self, namespace: str, *, bot_id: str | None) -> None:
         try:
             await self.redis_client.incr(self._version_key(namespace, bot_id))
+        except Exception:
+            return
+
+    async def mark_dirty(self, namespace: str, *, bot_id: str | None) -> None:
+        try:
+            await self.redis_client.set(self._dirty_key(namespace, bot_id), "1")
+        except Exception:
+            return
+
+    async def clear_dirty(self, namespace: str, *, bot_id: str | None) -> None:
+        try:
+            delete_method = getattr(self.redis_client, "delete", None)
+            if delete_method is not None:
+                await delete_method(self._dirty_key(namespace, bot_id))
+        except Exception:
+            return
+
+    async def is_dirty(self, namespace: str, *, bot_id: str | None) -> bool:
+        try:
+            return bool(await self.redis_client.get(self._dirty_key(namespace, bot_id)))
+        except Exception:
+            return False
+
+    async def claim_refresh(
+        self,
+        namespace: str,
+        *,
+        bot_id: str | None,
+        ttl_seconds: int = 60,
+    ) -> bool:
+        try:
+            claimed = await self.redis_client.set(
+                self._refresh_key(namespace, bot_id),
+                "1",
+                ex=ttl_seconds,
+                nx=True,
+            )
+            return bool(claimed)
+        except Exception:
+            return False
+
+    async def complete_refresh(self, namespace: str, *, bot_id: str | None) -> None:
+        try:
+            delete_method = getattr(self.redis_client, "delete", None)
+            if delete_method is not None:
+                await delete_method(self._refresh_key(namespace, bot_id))
         except Exception:
             return
 
@@ -77,6 +125,14 @@ class AdminCacheStore:
     def _version_key(self, namespace: str, bot_id: str | None) -> str:
         bot_scope = bot_id or "global"
         return f"admin-cache-version:{namespace}:{bot_scope}"
+
+    def _dirty_key(self, namespace: str, bot_id: str | None) -> str:
+        bot_scope = bot_id or "global"
+        return f"admin-cache-dirty:{namespace}:{bot_scope}"
+
+    def _refresh_key(self, namespace: str, bot_id: str | None) -> str:
+        bot_scope = bot_id or "global"
+        return f"admin-cache-refresh:{namespace}:{bot_scope}"
 
     def _payload_key(
         self,

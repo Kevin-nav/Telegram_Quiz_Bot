@@ -97,9 +97,9 @@ async def review_time_allocation(ctx: dict[str, Any], payload: dict) -> None:
     await handle_review_time_allocation(payload, payload.get("attempts", []))
 
 
-async def precompute_admin_analytics(ctx: dict[str, Any]) -> None:
+async def precompute_admin_analytics(ctx: dict[str, Any], payload: dict | None = None) -> None:
     """Precompute analytics summaries (called by cron & on-demand)."""
-    await handle_precompute_admin_analytics()
+    await handle_precompute_admin_analytics(payload)
 
 
 class WorkerSettings:

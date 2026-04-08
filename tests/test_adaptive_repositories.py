@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from src.infra.db.models.adaptive_review_flag import AdaptiveReviewFlag
 from src.infra.db.models.student_course_state import StudentCourseState
+from src.infra.db.models.student_session_summary import StudentSessionSummary
 from src.infra.db.models.student_question_srs import StudentQuestionSrs
 from src.infra.db.repositories.adaptive_review_repository import AdaptiveReviewRepository
 from src.infra.db.repositories.student_course_state_repository import StudentCourseStateRepository
 from src.infra.db.repositories.student_question_srs_repository import StudentQuestionSrsRepository
+from src.infra.db.repositories.student_session_summary_repository import (
+    StudentSessionSummaryRepository,
+)
 
 
 class FakeScalarResult:
@@ -35,9 +41,11 @@ class FakeAdaptiveSession:
         self.states_by_key: dict[tuple[int, str], StudentCourseState] = {}
         self.srs_by_key: dict[tuple[int, int], StudentQuestionSrs] = {}
         self.flags_by_key: dict[tuple[int, str], AdaptiveReviewFlag] = {}
+        self.session_summaries_by_key: dict[tuple[str, str | None], StudentSessionSummary] = {}
         self.state_id_seq = 1
         self.srs_id_seq = 1
         self.flag_id_seq = 1
+        self.session_summary_id_seq = 1
 
     async def __aenter__(self):
         return self
@@ -86,6 +94,20 @@ class FakeAdaptiveSession:
                 return FakeResult(values=values)
             return FakeResult(self.flags_by_key.get((question_id, flag_type)))
 
+        if model is StudentSessionSummary:
+            session_id = self._extract_param(params, "session_id")
+            user_id = self._extract_param(params, "user_id")
+            if session_id is not None:
+                bot_id = self._extract_param(params, "bot_id")
+                return FakeResult(self.session_summaries_by_key.get((session_id, bot_id)))
+            values = [
+                summary
+                for (_, _), summary in self.session_summaries_by_key.items()
+                if summary.user_id == user_id
+            ]
+            values.sort(key=lambda summary: summary.completed_at, reverse=True)
+            return FakeResult(values=values)
+
         raise AssertionError(f"Unsupported model: {model!r}")
 
     def add(self, record):
@@ -108,6 +130,13 @@ class FakeAdaptiveSession:
                 record.id = self.flag_id_seq
                 self.flag_id_seq += 1
             self.flags_by_key[(record.question_id, record.flag_type)] = record
+            return
+
+        if isinstance(record, StudentSessionSummary):
+            if record.id is None:
+                record.id = self.session_summary_id_seq
+                self.session_summary_id_seq += 1
+            self.session_summaries_by_key[(record.session_id, record.bot_id)] = record
             return
 
         raise AssertionError(f"Unsupported record type: {type(record)!r}")
@@ -156,12 +185,20 @@ async def test_student_course_state_repository_get_or_create_and_update_fields()
         phase="warm",
     )
     incremented = await repository.increment_counters(42, "calculus", quizzes=1, attempts=4)
+    metrics = await repository.record_attempt_metrics(
+        42,
+        "calculus",
+        is_correct=True,
+        time_taken_seconds=12.0,
+    )
 
-    assert created.id == updated.id == incremented.id
+    assert created.id == updated.id == incremented.id == metrics.id
     assert updated.overall_skill == 3.1
     assert updated.phase == "warm"
     assert incremented.total_quizzes_completed == 1
     assert incremented.total_attempts == 4
+    assert metrics.total_correct == 1
+    assert metrics.avg_time_per_question == 12.0
 
 
 @pytest.mark.asyncio
@@ -215,3 +252,36 @@ async def test_adaptive_review_repository_deduplicates_open_flags_and_resolves_t
     assert resolved.status == "resolved"
     assert resolved.resolved_at is not None
     assert open_flags == []
+
+
+@pytest.mark.asyncio
+async def test_student_session_summary_repository_upserts_completed_sessions():
+    session = FakeAdaptiveSession()
+    repository = StudentSessionSummaryRepository(FakeSessionFactory(session))
+
+    first = await repository.upsert_summary(
+        session_id="session-1",
+        user_id=42,
+        course_id="calculus",
+        bot_id="adarkwa",
+        total_questions=10,
+        correct_count=7,
+        avg_time_seconds=11.5,
+        completed_at=datetime(2026, 4, 8, tzinfo=timezone.utc),
+    )
+    second = await repository.upsert_summary(
+        session_id="session-1",
+        user_id=42,
+        course_id="calculus",
+        bot_id="adarkwa",
+        total_questions=10,
+        correct_count=8,
+        avg_time_seconds=10.5,
+        completed_at=datetime(2026, 4, 8, 1, tzinfo=timezone.utc),
+    )
+
+    loaded = await repository.get_by_session_id("session-1", bot_id="adarkwa")
+
+    assert first.id == second.id == loaded.id
+    assert loaded.correct_count == 8
+    assert loaded.accuracy_percent == 80.0
