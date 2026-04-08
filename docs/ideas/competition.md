@@ -1,0 +1,3 @@
+# Ideas We Can Use To Boost Usage
+1. For people duing the same course eg, chemical enginneering, mechanical engineering, we should have a leaderboard for each of them there so they can see and compete with each other there. and also per course eg General Psychology leaderboard that will be for everyone who has attempted that specific course in teh quiz bot.
+2. Add a sharable link for each and every individual so they know their performance and all. but before something like that comes out,we need to make sure it does not become an attack surface for people in cybersecurity.

@@ -107,6 +107,10 @@ FACULTIES = [
                 "code": "electrical-and-electronics-engineering",
                 "name": "Electrical and Electronics Engineering",
             },
+            {
+                "code": "telecommunications-engineering",
+                "name": "Telecommunications Engineering",
+            },
         ],
     },
 ]
@@ -578,6 +582,10 @@ def _build_program_courses():
                     "semester_code": "first",
                 },
             )
+
+    for course in list(grouped.get("electrical-and-electronics-engineering", [])):
+        if course.get("level_code") == "100":
+            add_course("telecommunications-engineering", course)
 
     return {
         program_code: sorted(courses, key=lambda entry: entry["name"])
