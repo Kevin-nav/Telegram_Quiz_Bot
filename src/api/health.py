@@ -59,10 +59,13 @@ async def health_ready(request: Request):
     if not getattr(runtime, "startup_ready", True):
         await startup_web_app(runtime)
     checks = await check_readiness(runtime)
+    settings = getattr(runtime, "settings", None)
+    app_mode = getattr(settings, "app_mode", "normal")
     is_ready = all(value == "ok" for value in checks.values())
     payload = {
         "status": "ok" if is_ready else "degraded",
         "checks": checks,
+        "app_mode": app_mode,
         "detail": getattr(runtime, "startup_error", None),
     }
     response_code = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE

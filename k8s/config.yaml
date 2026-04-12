@@ -6,11 +6,13 @@ data:
   # REDIS_URL stays in the Kubernetes secret and should point at the VPS-local
   # Valkey or Redis listener, typically via the VPS private IP.
   APP_ENV: "production"
+  APP_MODE: "normal"
   PORT: "8000"
   ARQ_QUEUE_NAME: "adarkwa-bot-background-v2"
   ADMIN_ALLOWED_ORIGINS: "https://admin-tgbot.sankoslides.com"
   ADMIN_SESSION_COOKIE_DOMAIN: ""
   ADMIN_FRONTEND_BASE_URL: "https://admin-tgbot.sankoslides.com"
+  R2_DB_BACKUP_PREFIX: "db-backups"
 ---
 apiVersion: v1
 kind: ConfigMap

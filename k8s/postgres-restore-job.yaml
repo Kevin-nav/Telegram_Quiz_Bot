@@ -1,0 +1,109 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adarkwa-postgres-restore
+  labels:
+    app: adarkwa-postgres
+    component: restore
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: adarkwa-postgres
+        component: restore
+    spec:
+      restartPolicy: Never
+      volumes:
+      - name: restore-workdir
+        emptyDir: {}
+      initContainers:
+      - name: fetch-backup
+        image: amazon/aws-cli:2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: R2_ACCOUNT_ID
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: R2_ACCOUNT_ID
+        - name: R2_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: R2_ACCESS_KEY_ID
+        - name: R2_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: R2_SECRET_ACCESS_KEY
+        - name: R2_BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: R2_BUCKET_NAME
+        - name: BACKUP_OBJECT_KEY
+          value: db-backups/adarkwa_study_bot/example.dump
+        command:
+        - sh
+        - -lc
+        - |
+          set -euo pipefail
+          export AWS_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID}"
+          export AWS_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY}"
+          aws s3 cp \
+            "s3://${R2_BUCKET_NAME}/${BACKUP_OBJECT_KEY}" \
+            /restore/backup.dump \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        volumeMounts:
+        - name: restore-workdir
+          mountPath: /restore
+      containers:
+      - name: pg-restore
+        image: postgres:17
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: POSTGRES_HOST
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: adarkwa-postgres-secret
+              key: POSTGRES_PORT
+        command:
+        - sh
+        - -lc
+        - |
+          set -euo pipefail
+          PGPASSWORD="${POSTGRES_PASSWORD}" \
+            pg_restore \
+            --clean \
+            --if-exists \
+            --no-owner \
+            --no-privileges \
+            --host "${POSTGRES_HOST}" \
+            --port "${POSTGRES_PORT}" \
+            --username "${POSTGRES_USER}" \
+            --dbname "${POSTGRES_DB}" \
+            /restore/backup.dump
+        volumeMounts:
+        - name: restore-workdir
+          mountPath: /restore

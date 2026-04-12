@@ -12,9 +12,16 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramUpdateDispatcher:
-    def __init__(self, runtime, *, inline_capacity: int = 100):
+    def __init__(
+        self,
+        runtime,
+        *,
+        inline_capacity: int = 100,
+        force_background: bool = False,
+    ):
         self.runtime = runtime
         self.inline_capacity = inline_capacity
+        self.force_background = force_background
         self._semaphore = asyncio.BoundedSemaphore(inline_capacity)
         self._tasks: set[asyncio.Task] = set()
 
@@ -28,6 +35,8 @@ class TelegramUpdateDispatcher:
         return route
 
     def classify(self, payload: dict) -> str:
+        if self.force_background:
+            return "background"
         if payload.get("callback_query") is not None:
             return "inline"
         if payload.get("poll_answer") is not None:

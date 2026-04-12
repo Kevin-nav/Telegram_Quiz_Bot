@@ -81,6 +81,34 @@ def test_arq_queue_name_defaults_to_background_v2(monkeypatch):
     assert settings.arq_queue_name == "adarkwa-bot-background-v2"
 
 
+def test_app_mode_defaults_to_normal(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
+
+    settings = Settings()
+
+    assert settings.app_mode == "normal"
+
+
+def test_app_mode_accepts_queue_only(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
+    monkeypatch.setenv("APP_MODE", "queue_only")
+
+    settings = Settings()
+
+    assert settings.app_mode == "queue_only"
+
+
+def test_app_mode_rejects_unknown_value(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "testing")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")
+    monkeypatch.setenv("APP_MODE", "paused")
+
+    with pytest.raises(ValueError, match="APP_MODE"):
+        Settings()
+
+
 def test_settings_do_not_expose_adaptive_rollout_flags(monkeypatch):
     monkeypatch.setenv("APP_ENV", "testing")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/test_db")

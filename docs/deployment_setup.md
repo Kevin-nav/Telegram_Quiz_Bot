@@ -340,6 +340,22 @@ This bot currently treats Redis as a critical runtime dependency for:
 
 Do not use a request-capped or free Redis tier for production if you want reliable auto-deployments and stable bot uptime. Use a VPS-local Redis-compatible service with persistence and password auth.
 
+## 9.1. Postgres Migration Notes
+
+The repo now includes the first migration path from Neon to an in-cluster PostgreSQL instance:
+
+- `k8s/postgres-service.yaml`
+- `k8s/postgres-statefulset.yaml`
+- `k8s/postgres-backup-cronjob.yaml`
+- `k8s/postgres-restore-job.yaml`
+- `scripts/db_snapshot_metadata.py`
+- `scripts/compare_databases.py`
+- `scripts/upload_db_backup.py`
+
+Use `APP_MODE=queue_only` during the cutover window so webhook requests still return `200` while all Telegram updates are forced into Redis/ARQ and the worker is briefly scaled to `0`.
+
+The full operator sequence lives in `docs/postgres_migration_runbook.md`.
+
 ## 10. Troubleshooting
 
 ### The deploy timer does not update
@@ -461,6 +477,11 @@ Kubernetes secret changes:
 - `WEBHOOK_SECRET` or `TANJAH_WEBHOOK_SECRET`
 - `ADARKWA_WEBHOOK_SECRET`
 - R2 credentials
+
+Kubernetes config map changes:
+
+- `APP_MODE`
+- `R2_DB_BACKUP_PREFIX`
 
 Cloudflare changes:
 

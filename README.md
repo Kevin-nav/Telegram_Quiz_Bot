@@ -48,6 +48,7 @@ Required foundation variables:
 
 Optional foundation variables:
 
+- `APP_MODE`
 - `WEBHOOK_URL`
 - `ADARKWA_BOT_TOKEN`
 - `ADARKWA_WEBHOOK_SECRET`
@@ -60,6 +61,7 @@ Optional foundation variables:
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET_NAME`
 - `R2_PUBLIC_BASE_URL`
+- `R2_DB_BACKUP_PREFIX`
 - `ADMIN_ALLOWED_ORIGINS`
 - `ADMIN_SESSION_COOKIE_DOMAIN`
 - `ADMIN_FRONTEND_BASE_URL`
@@ -134,6 +136,8 @@ For LaTeX questions, the importer renders and uploads one image set per configur
 
 `/health/ready` checks the Redis and database dependencies used by the web process.
 
+The readiness payload also reports the current `app_mode`. Use `APP_MODE=queue_only` during a database cutover to force all Telegram updates into the background queue while the worker is temporarily paused.
+
 ## Migrations
 
 Alembic scaffolding is included for the launch-foundation schema:
@@ -142,11 +146,26 @@ Alembic scaffolding is included for the launch-foundation schema:
 alembic upgrade head
 ```
 
+## Postgres Migration Tooling
+
+The repo includes migration tooling for the move from Neon to in-cluster PostgreSQL:
+
+- `scripts/db_snapshot_metadata.py`
+- `scripts/compare_databases.py`
+- `scripts/upload_db_backup.py`
+- `k8s/postgres-service.yaml`
+- `k8s/postgres-statefulset.yaml`
+- `k8s/postgres-backup-cronjob.yaml`
+- `k8s/postgres-restore-job.yaml`
+
+For the cutover and restore procedure, see [docs/postgres_migration_runbook.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/postgres_migration_runbook.md).
+
 ## Notes
 
 - The adaptive learning engine is intentionally not implemented yet in this foundation phase.
 - Question-bank import workflow documentation lives in [docs/question_bank_import.md](C:/Users/Kevin/Projects/Telegram_Bots/Quizzers/Adarkwa_Study_Bot/docs/question_bank_import.md).
 - Kubernetes manifests now include separate web, worker, and migration job roles under `k8s/`.
+- Kubernetes also includes a PVC-backed PostgreSQL stateful set plus backup and restore job templates for the Neon migration path.
 - Telegram UX design docs live in `docs/plans/2026-03-17-telegram-ux-flow-design.md` and `docs/plans/2026-03-17-telegram-ux-flow.md`.
 - Bot-scoped admin access docs live in `docs/plans/2026-04-04-bot-scoped-admin-access-design.md` and `docs/plans/2026-04-04-bot-scoped-admin-access.md`.
 

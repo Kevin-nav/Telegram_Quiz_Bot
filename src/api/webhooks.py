@@ -58,6 +58,11 @@ def runtime_accepting_webhooks(runtime) -> bool:
     return getattr(runtime, "startup_ready", True)
 
 
+def runtime_queue_only(runtime) -> bool:
+    settings = getattr(runtime, "settings", None)
+    return getattr(settings, "app_mode", "normal") == "queue_only"
+
+
 @router.post("/webhook")
 @router.post("/webhook/{bot_id}")
 async def telegram_webhook(request: Request, bot_id: str = TANJAH_BOT_ID):
@@ -81,7 +86,10 @@ async def telegram_webhook(request: Request, bot_id: str = TANJAH_BOT_ID):
         )
         return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
     if runtime.dispatcher is None:
-        runtime.dispatcher = TelegramUpdateDispatcher(runtime)
+        runtime.dispatcher = TelegramUpdateDispatcher(
+            runtime,
+            force_background=runtime_queue_only(runtime),
+        )
         runtime.telegram_app.bot_data.setdefault("background_scheduler", runtime.dispatcher)
 
     try:

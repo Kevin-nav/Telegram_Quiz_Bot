@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     )
 
     app_env: str = Field(default="development", alias="APP_ENV")
+    app_mode: str = Field(default="normal", alias="APP_MODE")
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
     tanjah_bot_token: str | None = Field(default=None, alias="TANJAH_BOT_TOKEN")
     adarkwa_bot_token: str | None = Field(default=None, alias="ADARKWA_BOT_TOKEN")
@@ -84,6 +85,10 @@ class Settings(BaseSettings):
     )
     r2_bucket_name: str | None = Field(default=None, alias="R2_BUCKET_NAME")
     r2_public_base_url: str | None = Field(default=None, alias="R2_PUBLIC_BASE_URL")
+    r2_db_backup_prefix: str = Field(
+        default="db-backups",
+        alias="R2_DB_BACKUP_PREFIX",
+    )
     welcome_message: str = Field(
         default=(
             "Welcome to Adarkwa Study Bot!\n\n"
@@ -102,6 +107,10 @@ class Settings(BaseSettings):
     def validate_runtime_settings(self) -> "Settings":
         if self.admin_session_cookie_domain == "":
             self.admin_session_cookie_domain = None
+
+        self.app_mode = self.app_mode.strip().lower()
+        if self.app_mode not in {"normal", "queue_only"}:
+            raise ValueError("APP_MODE must be one of: normal, queue_only.")
 
         if not self.database_url:
             raise ValueError("DATABASE_URL environment variable not set.")

@@ -197,6 +197,48 @@ async def test_webhook_background_update_uses_dispatcher(async_client, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_webhook_uses_queue_only_dispatcher_when_app_mode_requires_it(
+    async_client,
+    monkeypatch,
+):
+    dispatch_calls = []
+
+    class FakeDispatcher:
+        def __init__(self, runtime, *, force_background=False, inline_capacity=100):
+            dispatch_calls.append(force_background)
+            self.runtime = runtime
+
+        async def dispatch(self, payload, *, bot_id="tanjah"):
+            return "background"
+
+    import src.api.webhooks
+
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "TelegramUpdateDispatcher",
+        FakeDispatcher,
+    )
+    monkeypatch.setattr(
+        src.api.webhooks,
+        "get_runtime",
+        lambda request: SimpleNamespace(
+            settings=SimpleNamespace(app_mode="queue_only"),
+            redis=FakeRedis(),
+            dispatcher=None,
+            telegram_app=SimpleNamespace(bot_data={}),
+        ),
+    )
+
+    headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+    payload = {"update_id": 10003, "message": {"text": "/start"}}
+
+    response = await async_client.post("/webhook", json=payload, headers=headers)
+
+    assert response.status_code == 200
+    assert dispatch_calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_ready_endpoint_returns_503_when_dependency_down(async_client, monkeypatch):
     async def mock_check_readiness(*args, **kwargs):
         return {"startup": "ok", "redis": "ok", "database": "error"}
@@ -209,6 +251,7 @@ async def test_ready_endpoint_returns_503_when_dependency_down(async_client, mon
 
     assert response.status_code == 503
     assert response.json()["status"] == "degraded"
+    assert response.json()["app_mode"] == "normal"
 
 
 @pytest.mark.asyncio
@@ -218,6 +261,7 @@ async def test_ready_endpoint_reports_degraded_startup(async_client, monkeypatch
     runtime = SimpleNamespace(
         startup_ready=False,
         startup_error="redis_unavailable:RuntimeError",
+        settings=SimpleNamespace(app_mode="queue_only"),
         redis=FakeRedis(),
         db_engine=SimpleNamespace(),
     )
@@ -244,6 +288,7 @@ async def test_ready_endpoint_reports_degraded_startup(async_client, monkeypatch
 
     assert response.status_code == 200
     assert response.json()["checks"]["startup"] == "ok"
+    assert response.json()["app_mode"] == "queue_only"
     assert response.json()["detail"] is None
 
 

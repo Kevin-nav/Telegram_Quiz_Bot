@@ -28,6 +28,15 @@ async def test_dispatcher_classifies_non_text_messages_as_background():
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_can_force_all_updates_to_background():
+    dispatcher = TelegramUpdateDispatcher(FakeRuntime(), force_background=True)
+
+    assert dispatcher.classify({"callback_query": {"id": "1"}}) == "background"
+    assert dispatcher.classify({"poll_answer": {"poll_id": "1"}}) == "background"
+    assert dispatcher.classify({"message": {"text": "/start"}}) == "background"
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_passes_bot_id_to_inline_processor(monkeypatch):
     processed = []
 

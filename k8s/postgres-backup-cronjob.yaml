@@ -1,0 +1,149 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: adarkwa-postgres-backup
+  labels:
+    app: adarkwa-postgres
+    component: backup
+spec:
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: adarkwa-postgres
+            component: backup
+        spec:
+          restartPolicy: Never
+          volumes:
+          - name: backup-workdir
+            emptyDir: {}
+          initContainers:
+          - name: pg-dump
+            image: postgres:17
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_PORT
+            command:
+            - sh
+            - -lc
+            - |
+              set -euo pipefail
+              timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+              dump_path="/backup/${POSTGRES_DB}-${timestamp}.dump"
+              PGPASSWORD="${POSTGRES_PASSWORD}" \
+                pg_dump \
+                --format=custom \
+                --no-owner \
+                --no-privileges \
+                --host "${POSTGRES_HOST}" \
+                --port "${POSTGRES_PORT}" \
+                --username "${POSTGRES_USER}" \
+                --dbname "${POSTGRES_DB}" \
+                --file "${dump_path}"
+              printf '%s' "${dump_path}" > /backup/latest-path.txt
+            volumeMounts:
+            - name: backup-workdir
+              mountPath: /backup
+          containers:
+          - name: upload-backup
+            image: __IMAGE__
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: POSTGRES_PORT
+            - name: R2_ACCOUNT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: R2_ACCOUNT_ID
+            - name: R2_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: R2_ACCESS_KEY_ID
+            - name: R2_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: R2_SECRET_ACCESS_KEY
+            - name: R2_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: adarkwa-postgres-secret
+                  key: R2_BUCKET_NAME
+            - name: R2_DB_BACKUP_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: adarkwa-bot-config
+                  key: R2_DB_BACKUP_PREFIX
+            command:
+            - sh
+            - -lc
+            - |
+              set -euo pipefail
+              dump_path="$(cat /backup/latest-path.txt)"
+              database_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+              python scripts/db_snapshot_metadata.py \
+                --database-url "${database_url}" \
+                --pretty > /backup/snapshot.json
+              python scripts/upload_db_backup.py \
+                --database-name "${POSTGRES_DB}" \
+                --backup-file "${dump_path}" \
+                --metadata-file /backup/snapshot.json \
+                --pretty
+            volumeMounts:
+            - name: backup-workdir
+              mountPath: /backup
