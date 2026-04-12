@@ -19,7 +19,13 @@ spec:
       - name: adarkwa-bot-migrate
         image: __IMAGE__
         imagePullPolicy: Always
-        command: ["alembic", "upgrade", "head"]
+        command:
+        - sh
+        - -lc
+        - |
+          set -euo pipefail
+          export DATABASE_URL="$(python -c "import os; print(os.environ['DATABASE_URL'].replace('%', '%%'))")"
+          alembic upgrade head
         envFrom:
         - configMapRef:
             name: adarkwa-bot-config
