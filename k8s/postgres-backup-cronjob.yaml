@@ -135,7 +135,8 @@ spec:
             - |
               set -euo pipefail
               dump_path="$(cat /backup/latest-path.txt)"
-              database_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+              database_url="$(python -c "import os; from urllib.parse import quote; password = quote(os.environ['POSTGRES_PASSWORD'], safe=''); print('postgresql://{}:{}@{}:{}/{}'.format(os.environ['POSTGRES_USER'], password, os.environ['POSTGRES_HOST'], os.environ['POSTGRES_PORT'], os.environ['POSTGRES_DB']))")"
+              export DATABASE_URL="${database_url}"
               python scripts/db_snapshot_metadata.py \
                 --database-url "${database_url}" \
                 --pretty > /backup/snapshot.json
